@@ -1,0 +1,156 @@
+:linkcss!:
+:source-highlighter: highlightjs
+:toc:
+
+This essay is a discussion on the various data structure complexities,
+and how to implement various queries on top of them.
+
+## A continuum of data structure complexity
+
+Data as *blob* is the simplest form.
+Being opaque, the datastore cannot do much about it.
+
+Data as *map* (set of property/values) offers the ability for the datastore to expose each "property".
+
+Data as a *self contained object graph* is more flexible than map.
+*Embedded objects* and collection of embedded objects are expressible.
+A per entry or shared *schema* can be imposed on entries and offer validation.
+Note that data is not duplicated between different keys here.
+
+Data as a set of *connected objects* offer the most flexibility.
+While each entity can contain (collections of) embedded objects,
+they can also connect to other entities.
+
+[NOTE]
+.Critical definitions
+====
+An embedded object lifecycle is entirely dependent of its owning object.
+An entity has an independent lifecycle compared to other objects.
+
+* Entities connected to each other are connected objects.
+* Entities only pointing to embedded objects are self contained object graphs.
+====
+
+For reference, document stores tend to offer the self contained object graph approach.
+Connected objects have to be built on top by the application.
+
+### OO
+
+OO implies polymorphism, so when someone looks up or query an +Animal+,
+it can be a +Cat+, +Dog+, +Human+ etc.
+Some queries are addressed to a specific subtype. Some are to the higher type.
+
+## A continuum of query
+
+This section describes the possible approaches to implement query on your data set.
+This realistically imposes restrictions on how query-able data can be stored on a given system.
+
+I am not trying to list all possible techniques and optimizations.
+Enough to get a cost and understanding of what is at stake.
+In particular and for brievety, I focus on the filtering part of a query, not the aggregation:
++from ... where ...+ as opposed to +select ... group by ... having+.
+
+### Query by primary key
+
+When data is a blob, the efficient way to query is by its *primary identifier* (key in the data grid).
+All other queries require one or more passes of *full scan*.
+
+### Query by property value
+
+When data is a map and to most extend a self contained object graph,
+you can additionally query data by their *property values*.
+To do that efficiently, an index (property-value->primary key) is maintained.
+For a relatively modest cost at CUD time, we avoid the full scan of the data set.
+An index can also offer additional features like full-text search.
+
+An index can be maintained manually by the application or delegated to the datastore.
+
+IMPORTANT:
+Full scan are to be avoided if possible, especially when part of the data set is passivated.
+Even when fully in memory, a full scan can keep a thread busy for a while compared to an index.
+
+An alternative is to physically store data ordered by the property value we are looking for.
+This is a trick often used for time series.
+This is a single-shot pistol though as you can only select one property.
+
+For the curious, systems like Google Dremel store data completly differently
+and pay the cost at different time.
+
+### Query between entities
+
+Queries between related entities can be done in several ways.
+
+Materialized view::
+A structure that physically represents the results of a query.
+It has to be maintained.
+When a CUD happens, all related materialized views need to be updated.
+This is essentially a denormalization.
+
+Data denormalization::
+Store the entity A and its associated entities B (and C and D...) under one key.
+When you denormalize, something must keep the duplicated copies synchronized.
+The benefit is that these queries are becoming "as simple as" query by property value.
+
+Index denormalization::
+Index the necessary object graph and store that information in the index.
+For a given entity A, the list of Bs (and Cs and Ds) associated will be stored in the index.
+To achieve that, something must know that A is associated to these Bs and Cs and must maintain the index.
+The benefit is that these queries are becoming "as simple as" query by property value using indexes.
+
+Computed via full scan (on the fly join)::
+This scenario is orders of magnitude worse than the full-scan for a given query by property value.
+Assuming a join between A and B.
+For each matching A, you need to find and load the matching Bs.
+If the join is applied on the non primary keys, we are looking at best at 2 full scans.
+And in a distributed world, the full scan must encompass all primary nodes.
+Multiple joins leads to an exponential explosion.
+
+All of the above::
+In practice, a datastore needs to implement a combination of these techniques.
+A query planner is then necessary to decide which technique to use for a given part of a query and data set.
+This planner must be fed with data statistics and with the relations between these entities and properties.
+Pretty much like a RDBMS.
+
+Note that when one needs to load a set of data (entities A) to find the related set of data (entities B),
+one often end up with something called the n+1 problem. n+1 lookups must be performed.
+
+## A continuum of use cases (kind of the conclusion)
+
+If the system only accesses data by its primary key, life is easy.
+
+If the system only has maps or self contained object graphs,
+the data for a given entity type is all contained in the same cache
+and indexes can be built to speed common queries.
+Full scan can cover the rest with a higher price.
+
+If the system stores connected entities (whether in the same cache or not),
+life becomes complicated:
+
+* you need to write a pretty *smart query planner / executor* or be shit slow
+* more importantly, *something needs to know about the relations between the entities* and
+  maintain the denormalization structures (index, actual data duplication etc)
+** to maintain an index with denormalized data
+** to maintain physically denormalized data
+** because multiple full scans for each query should be a non starter
+
+That something can be:
+
+1. the user application (manually)
+2. a framework or paradigm which deals with interconnected entities and store them in the datastore
+3. the datastore itself
+
+Infinispan is not in the business of 3.
+It is not a relational database.
+And the currently exposed API are a long way from achieving this.
+
+The user would be hard pressed to implement and maintain the data denormalizations we are talking about
+unless they are very limited and don't evolve.
+Same when it comes to use this denormalized data to write efficient queries.
+I suspect that in practice, this is a nightmare.
+
+That leaves a framework or paradigm dealing in interconnected entities.
+
+I believe a *cache API and Hot Rod are well suited to address up to the self contained object graph* use case
+with a couple of relations maintained manually by the application but that cannot be queried.
+
+For the connected entities use case, only a high level paradigm is suited like JPA.

@@ -1,0 +1,157 @@
+Security within Infinispan needs to be implemented at several layers:
+
+* within the core library, to provide coarse and fine-grained access control to CacheManagers, Caches and data and to provide encryption of data
+* over remote protocols, to obtain credentials from remote clients and to secure the transport using encryption
+* between nodes in a cluster, so that only authorized nodes can join and to secure the transport using encryption
+
+In order to maximize compatibility and integration, Infinispan should use widespread security standards where possible and appropriate, such as X.509 certificates, SSL/TLS encryption and Kerberos.
+Also, to avoid pulling in any external dependencies and to increase the ease of integration with third party libraries and containers, the chosen implementation should make use of any facilities provided by the standard Java security libraries (JAAS, JSSE, JCA, JCE, SASL, etc).
+For this reason, the Infinispan core library will only provide interfaces and a set of basic implementations in its core library, with the possibility of an optional integration module which leverages PicketBox, the security library offered by the JBoss ecosystem.
+
+== Embedded Security
+Applications interact with Infinispan using its API within the same JVM. The two main components which are exposed by the Infinispan API are CacheManagers and Caches. If an application wants to interact with a secured CacheManager and Cache, it should provide an identity which Infinispan’s security layer will validate against a set of required roles and permissions. If the identity provided by the user application has sufficient permissions, then access will be granted, otherwise an exception indicating a security violation will be thrown. The identity is represented by the javax.security.auth.Subject class which is a wrapper around multiple Principals, e.g. a user and all the groups it belongs to. Since the Principal name is dependent on the owning system (e.g. a Distinguished Name in LDAP), Infinispan needs to be able to map Principal names to roles. Roles, in turn, represent one or more permissions. The following diagram shows the relationship between the various elements:
+
+.Roles/Permissions mapping 
+image::SecurityRolesPermissions.png[Roles/Permissions mapping]
+ 
+=== Embedded Permissions
+
+Access to a cache manager or a cache is controlled by using a list of required permissions. Permissions are concerned with the type of action that is performed on one of the above entities and not with the type of data being manipulated. Some of these permissions can be narrowed to specifically named entities, where applicable (e.g. a named cache). Depending on the type of entity, there are different types of permission available:
+
+==== Cache Manager permissions
+* CONFIGURATION (defineConfiguration): whether a new cache configuration can be defined
+* LISTEN (addListener): whether listeners can be registered against a cache manager
+* LIFECYCLE (stop): whether the cache manager can be stopped
+* ALL: a convenience permission which includes all of the above
+
+==== Cache permissions
+* ACCESS (getCache): whether a specific cache can be obtained
+* READ (get, contains): whether entries can be retrieved from the cache
+* WRITE (put, putIfAbsent, replace, remove, evict): whether data can be written/replaced/removed/evicted from the cache
+* EXEC (distexec, mapreduce): whether code execution can be run against the cache
+* LISTEN (addListener): whether listeners can be registered against a cache
+* BULK_READ (keySet, values, entrySet): whether bulk retrieve operations can be executed
+* BULK_WRITE (clear): whether bulk write operations can be executed
+* LIFECYCLE (stop): whether a cache can be stopped
+* ALL: a convenience permission which includes all of the above
+
+=== Embedded Security Interceptor
+For finer-grained control, an authorization interceptor can be registered at the cache level which can delegate authorization to a user-defined class. Such a class will receive as parameters the identity, the type of operation and the context (cache/key/value) so that it can also base its decision on payload.
+
+=== Embedded Encryption
+Encryption of data within the grid is delegated to the application.
+
+=== Embedded API
+When a DefaultCacheManager has been constructed with security enabled using either the programmatic or declarative configuration, it will return appropriate SecureCache delegates which will check the security context before invoking any operations on the underlying caches. A SecureCache will also make sure that applications cannot retrieve lower-level insecure objects (such as DataContainer).
+In Java, executing code with a specific identity usually means wrapping the code to be executed within a PrivilegedAction:
+
+Subject.doAs(subject, new PrivilegedExceptionAction<Void>()  {
+public Void run() throws Exception {
+    cache.put(“key”, “value”);
+}
+});
+
+Great care has to be taken to avoid Subjects getting bound to threads which might be reused. To avoid this scenario, the ThreadFactory in use should create threads within a privileged block so that the AccessController context is cleared after use.
+
+=== Embedded Configuration
+There are two levels of configuration: global and per-cache. The global configuration defines the following:
+
+* transport security: this will inject appropriately configured authentication and encryption protocols in the JGroups transport in a secure fashion (e.g. avoiding the use of clear-text passwords)
+
+==== Programmatic
+[source,java]
+----
+GlobalConfigurationBuilder global = new GlobalConfigurationBuilder();
+global
+    .security()
+        .authorization()
+            .principalRoleMapper(new IdentityRoleMapper())
+            .role("admin").permission(CachePermission.ALL)
+            .role("reader").permission(CachePermission.READ)
+            .role("writer").permission(CachePermission.WRITE)
+            .role("supervisor").permission(CachePermission.READ).permission(CachePermission.WRITE)
+                .permission(CachePermission.EXEC).permission(CachePermission.BULK);
+ConfigurationBuilder config = new ConfigurationBuilder();
+config
+    .security()
+        .enable()
+        .authorization()
+            .role("admin")
+            .role("reader")
+            .role("writer")
+            .role("supervisor");
+----
+==== Declarative
+[source,xml]
+----
+<infinispan>
+   <global>
+      <transport clusterName="foo">
+      
+      </transport>
+      <security>
+         <authorization mapper="my.package.MyRoleMapper">
+            <role name="admin" permissions="ALL" />
+            <role name="reader" permissions="READ" />
+            <role name="writer" permissions="WRITE" />
+            <role name="supervisor" permissions="READ WRITE EXEC BULK"/>
+         </authorization>
+      </security>
+   </global>
+
+   <default>
+   </default>
+
+   <namedCache name="secured">
+      <security enabled="true">
+         <authorization>
+             <roles name="admin reader writer supervisor"/>
+         </authorization>
+      </security>
+   </namedCache>
+</infinispan>
+----
+
+== Remote Protocol Security
+
+While at the embedded level authentication is delegated to an external entity (a JavaEE container, a security library such as PicketBox, custom JAAS classes, etc), the nature of remote protocols requires that authentication should be performed within the context of the protocol itself. This means that a server should challenge a client for credentials and then use those credentials to validate against one or more security domain providers. Once the validation has been performed, the client is issued a token for subsequent operations to avoid otherwise expensive revalidations. 
+
+=== HotRod Security
+
+In order for users of the HotRod protocol to provide credentials for authentication and authorization, the protocol itself needs to implement an authentication operation and further enhance the header of all operations to carry a security token which will be used in subsequent operations to identify with the server.
+
+The authentication operation must implement the following:
+
+* an extensible way for the server to advertise supported authentication types (e.g. username/password, kerberos, X.509 certificate, etc).
+* a secure way for client and server to exchange principal and credentials information.
+* the generation of a time-based session identifier to be used for all subsequent operations
+
+The implementation should be based upon the SASL framework, which provides methods for listing and negotiating an authentication mechanism and for performing all the challenge/response steps required to authenticate. Using SASL it is possible to support a variety of mechanism, depending on the installed providers. By default the Java SASL implementation supports CRAM-MD5, DIGEST-MD5 and GSSAPI (Kerberos v5). 
+
+The following is an example sequence of operations performed by both the client and server to setup an authenticated dialogue:
+* the client connects to the server and invokes the MECHS operation to obtain a list of available mechanisms.
+* the client initiates the AUTH operation with the chosen mechanism
+* the client and the server perform the sequence of necessary challenge/response steps necessary to complete the authentication for the chosen mechanism.
+* the server validates the credentials against a security domain and, if successful, obtains a user identity
+* the server generates a session token to be associated with the validated identity and stores it into an “authentication cache”. Session tokens will be set to expire after a period of inactivity.
+* the server returns the session token to the client who will need to add it to all subsequent requests for which it requires authenticated access
+
+Once the HotRod server has obtained a Subject from the authentication sequence above, it will use it when invoking operations on the caches it exposes.
+
+=== RESTful Security
+
+REST uses the HTTP transport security features. Currently Infinispan’s restful server uses the servlet container’s authentication and authorization features in a limited fashion, by allowing a basic form of access-control. However security information obtained by the servlet container is not propagated further down the call-chain. This can be handled simply by passing such information using the API described in the previous paragraph about Embedded security.
+
+=== Memcached Security
+
+The Memcached protocol implements security only in the context of its binary variant. As Infinispan’s Memcached module only implements the text variant, it is not currently possible to add authentication and authorization at this stage. When the binary protocol is implemented, it will need to be hooked up to the SASL framework similarly to what is done for HotRod.
+
+== Cluster Security
+
+=== Cluster Authentication
+
+JGroups offers an AUTH protocol which implements a token-based approach to authentication: only nodes who provide a valid token can join a cluster. While the implementation of the AUTH protocol is quite flexible in that it allows providing a custom token validator, all of the currently provided tokens suffer from replay attack vulnerabilities. For this reason, and also to provide more flexibility and symmetry with the remote protocols, a new SASL-based token will be developed. If encryption using X.509 certificates has also been enabled we should support retrieving authentication information from the certificate transparently.
+
+=== Cluster Encryption
+
+The ENCRYPT protocol included with JGroups provides a way to encrypt the network traffic between nodes using either a user-specified algorithm and key size or with a key placed within a supplied KeyStore. For integration purposes some modifications will need to be made to the existing ENCRYPT implementation so that it can be supplied with a pre-existing instance of a KeyStore (e.g. one provided by EAP’s security subsystem or similar)

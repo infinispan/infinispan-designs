@@ -1,0 +1,65 @@
+=== Context
+When using link:Optimistic-Locking-In-Infinispan[optimistic locking] we still have a deadlock situation which is not covered by the link:Lock-Reordering-For-Avoiding-Deadlocks[lock reordering]:
+
+* Tx1 and Tx2 transactions executing in parallel on two nodes `N1` and `N2` and writing the keys `{a,b}`
+* `consistentHash(a) = {N3}` and `consistentHash(b) = {N4}`
+* with some right timing, during prepare time it is possible for these two transactions to deadlock:
+** Tx1 lock acquired on "a" @ N3
+** Tx2 lock acquired on "b" @ N4
+** Tx1 cannot progress acquiring  lock on "b" @ N4, that lock is acquired by Tx2
+** Tx2 cannot acquire lock on "a" @ N3 as that lock is held by Tx1
+** Tx1 and Tx2 are waiting for each other => deadlock
+
+NOTE: this problem stands disregarding the number of owners for a key.
+
+=== Solution
+The suggested solution for solving the above described deadlock is by enforcing transactions to acquire locks on remote nodes in the same order. Transactions, at prepare time, order the nodes it "touches" based on some criteria, and issues lock acquisition incrementally: it doesn't acquire lock on a node the the order sequence until it has a lock on the previous node in the sequence (and consequently on all the nodes before it).
+
+Node ordering can be defined based on cluster's view. An alternative ordering approach is `consistentHash(nodeAddress)`, but that might lead to conflicts when node that have addresses mapping to the same value.
+
+In the example above, considering the view = `{N1, N2, N3, N4}` and incremental lock acquisition:
+
+* Tx1 acquires lock on a@ N3
+* Tx2 tries to acquire lock on a@ N3. It cannot acquire and waits for Tx1 to release it
+* Tx1 acquires locks on b@ N4, completes and releases locks
+* Tx2 acquires lock on a@ N3
+* Tx2 acquires lock on b@ N4 and completes as well
+
+Following sections discusses two approaches for acquiring locks incrementally.
+
+==== Direct incremental locking
+In this approach, N1 does all the RPCs needed for acquiring locks in sequence. The diagram below illustrates how this happens, measuring performance based on link:http://en.wikipedia.org/wiki/Latency_(engineering)[one-way network latency].
+
+image::https://community.jboss.org/servlet/JiveServlet/downloadImage/16657/direct.png[]
+
+The numbers on the arrows identify one-way network calls: N1 first locks a@N2 (1) and then waits for acknowledgement (2), then b@N3 (RPC 2) etc. With this approach, the cost of an transactions, estimated as one-way network calls is: 2 x number of nodes touched by a transaction. The next section describes a less costly approach.
+
+==== Async incremental locking
+In this approach, the transaction coordinator multicasts the lock acquisition request to all the transaction participants. At the next step, the node having the lowest index in the sequence of nodes touched by the transactions (ordering given by cluster view), acquires lock and then sends an async lock acquisition request to the next node in the sequence. This is depicted in the following diagram:
+
+image::https://community.jboss.org/servlet/JiveServlet/downloadImage/16657/async.png[]
+
+1a, 1b and 1c happen in parallel (multicast). When the 1a RPC thread arrives at N2 it also tries to acquire lock on "a". On the other hand 1b and 1c don't try lock acquisition, but wait a confirmation from N2 and N3 respectively. After 1a acquired lock it sends an async message to N3, informing it that it can move on and acquire lock on "b". Then lock is acquired on b@N3, then N3 issues an async call to N4 etc.
+The cost of this approach is equal to the number of nodes touched by a transaction,  which is, in theory, twice as good as the direct incremental locking approach.
+
+===== What if the async ack call fails?
+The async call needs to be send in a pseudo-reliable way i.e. guaranteed to happen if the node is still alive. If the node crashes the transaction can retry the entire lock acquisition process based on the new owner of the data.
+
+=== Hybrid incremental approach
+This is a variation of the async incremental approach in which, during the initial multicast, all nodes try to acquire locks with a very small timeout (potentially 0). If all succeed then transaction proceeds to the 2nd phase of 2PC. If at least one node fails, the locks are being released on all the nodes touched by the transaction which follow its sequence in the view. This is depicted in the following diagram:
+
+image::https://community.jboss.org/servlet/JiveServlet/downloadImage/16657/hybrid.png[]
+
+==== Notes on the diagram
+* 1a, 1b and 1c happen in parallel as 2-way rpcs
+* 1b fails to acquire lock on b
+* when multicast 1 finishes, N1 is aware that lock acquistion failed on N3 but succeeded on N2 and N4
+* N1 tells N2 to start the incremental lock acquisition (2a). At the same time tells N4 to release it's lock on "c" (2c)
+* 2c is needed in order to avoid potential deadlocks
+
+This hybrid approach is a good fit for scenarios where there is some contention and deadlocks, but not a lot of it: the initial multicast is optimistic in the sense that it doesn't expect deadlocks to happen - but if there are any then it reacts quickly.
+
+=== Related
+* This optimization is tracked by link:https://issues.jboss.org/browse/ISPN-1219[ISPN-1132]
+* link:Optimistic-Locking-In-Infinispan[Infinispan's optimistic locking]
+* link:Lock-Reordering-For-Avoiding-Deadlocks[Lock reordering]

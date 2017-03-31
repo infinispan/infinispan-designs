@@ -1,0 +1,52 @@
+Manual/delayed rehashing and asymmetric caches have very similar requirements and so they will be implemented together.
+ 
+=== Virtual Cache Views
+A big part of the implementation will be supporting a separate view for each cache with a global component called CacheViewsManager.
+ 
+* The CacheViewsManager on the coordinator will receive REQUEST_JOIN(cachename) and REQUEST_LEAVE(cacheName) commands whenever a cache is started/stopped on one of the nodes.
+** A node leaving the JGroups cluster will also be interpreted as a leave.
+* The coordinator coalesces join requests, so if several nodes join in rapid succession it will be installed in a single step. Leaves need to be treated differently, in the first phase there will be no coalescing for leaves.
+** Might need a pluggable policy for handling this, or maybe just a configurable policy where the user can configure a "cooldown" interval from the last topology change together with a maximum numbers of joiners, maximum number of leavers and maximum timeout since the first uncommitted topology change.
+** The user should be also able to dynamically disable automatic installation of views and only install new views manually (e.g. when the entire cluster is shutting down).
+*** Any member should be able to send a REQUEST_VIEW_UPDATE command to the coordinator in order to trigger a new view with the current members.
+*** Any member should be able to send a DISABLE_VIEW_UPDATES command to the coordinator in order to suspend further view updates.
+*** Both of these should be accessible through JMX or the AS console.
+* The coordinator sends a PREPARE_VIEW(cacheName,viewId,oldMembers,newMembers) command to all the nodes that have the cache started (including the one that sent the join request). Each node can do its state transfer, lock transfer etc while handling the PREPARE_VIEW command and any exception will be propagated back to the coordinator.
+* After all the nodes responded to the PREPARE_VIEW command successfully, the coordinator sends a COMMIT_VIEW(viewId) to all the nodes and they install the new view.
+* If any of the node fails, the coordinator sends a ROLLBACK_VIEW(viewId) command to all the nodes and they return to the old view. The coordinator should retry to install the view after a "cooldown" amount of time, just like it would do with a join request.
+* If the coordinator changes or in a merge, the new coordinator will have its own copy of the last committed view but it will have to send a RECOVER_VIEW command to all the nodes in the cluster in order to rebuild the pending requests to join or to leave the cluster.
+** The coordinator was the one tallying PREPARE_VIEW responses, so the view should be automatically rolled back by all the members when the coordinator dies.
+*** There is a slight possibility of a race condition here, if only some of the nodes got the COMMIT_VIEW command before the old coordinator failed - unless JGroups ensures that either all or none of the recipients will receive the multicast and we really do use JGroups multicast.
+** For a given cache, if the old coordinator didn't have the cache running, the new coordinator will retry to install the view; otherwise there will be a new view without the old coordinator.
+* The CacheViewsManager will not decide a "winning partition" or help in any other way with conflict resolution during a merge.
+** Nodes will have different "last committed" views, so each node may need to use its own "old members" list instead of the coordinator's in order to determine what state to transfer.
+ 
+NOTE: There is a plan to simplify classloading issues in AS by creating a separate CacheManager for each deployment unit and multiplexing them on a single JGroups channel. That will not work well with our approach, since we are requiring that the CacheManager (and particularly the CacheViewsManager contained within) does exist on the JGroups coordinator even if none of its caches are started.
+A possible workaround would be to change CacheViewsManager into a JGroups protocol. That way we know it will always be started and it can keep state for more all the CacheManagers that are sharing that JGroups channel.
+ 
+=== Blocking State Transfer
+The StateTransferManager component will use the view callbacks provided by the CacheViewsManager instead of the JGroups channel in order to trigger state transfer. This will ensure that the "old" consistent hash and "new" consistent hash are the same on all the nodes.
+ 
+Delayed view callbacks will mean that at any given time some of the owners of a key may be stopped, so the DistributionInterceptor/ReplicationInterceptor will need to complete a write operation successfully in that case.
+ 
+With the current state transfer algorithm, all write operations are blocked during state transfer. Incoming write operations will reply with a StateTransferInProgressException and the originator will have to retry the operation after the state transfer has finished.
+ 
+=== Non-blocking state transfer / lock transfer
+See link:Non-Blocking-State-Transfer[non-blocking state transfer designs] for more details.
+
+== Comments
+=== Manik Surtani
+* Is this pluggable policy (cooldown, max joiners and leavers, etc) scheduled for 5.1?  And if so, for BETA1?  Or is it better to split this into a separate JIRA for later?
+* Manual rehashing should also be a separate JIRA so we can split it out/defer if necessary.
+* Manual rehash control should be JMX only.  JBoss AS admin console hooks into JMX.
+* Class loading and cache managers per JBoss AS application: the problem you mentioned can be solved by injecting the same CacheViewsManager instance into each of the CacheManagers created.  The same way the same JChannel instance is injected.  This will mean the CacheViewsManager logic can remain in Infinispan and still work in this setup.
+* Non-blocking state transfer should be a separate JIRA as well.
+* Locking: you say each cache has a view change lock.  Should this be each cache, or cache manager?  Or cache view manager?
+
+===  Dan Berindei (in response to Manik Surtani)
+* Pluggable policy: it's not scheduled for 5.1, I'll create a separate JIRA.
+* Manual rehashing: there's already ISPN-1394
+* I might be wrong, but I think AS7 is no longer starting the JMX subsystem by default.
+* Injecting the same CacheViewsManager in all application: this sounds much simpler than what I had in mind.
+* I'll create the JIRA.
+* I'd say each cache, because I don't want to block anything on an running cache while starting up a new one.

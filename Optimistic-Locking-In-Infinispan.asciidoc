@@ -1,0 +1,81 @@
+=== Context
+At the moment (Infinispan 5.0) two locking schemes are supported:
+
+* *pessimistic*, in which locks are being acquired remotely on each transactional write.  This is named eager locking and is detailed here.
+* a *hybrid* optimistic-pessimistic locking approach, in which local locks are being acquired as transaction progresses and remote locks are being acquired at prepare time. This is the default locking scheme.
+
+This document describes a replacement for the hybrid locking scheme with an optimistic scheme. 
+
+=== Shortcomings of the hybrid approach
+In the current hybrid approach local locks are acquired at write time and remote write locks are acquired at prepare time as well.
+E.g. considering the following code that runs on node A and consistentHash("a") = {B}.
+
+ transactionManager.begin();
+ cache.put("a", "aVal"); // this acquires a WL on A. "a" is not locked on B
+ Object result = cache.get("b"); //this doesn't acquire any lock
+ transactionManager.commit(); // this acquires a WL on B as well, then it release it after applying the modification
+
+This locking model has some shortcomings, especially in distributed mode:
+
+==== Less throughput
+The overall throughput of the system is reduced in the following scenario:
+On node A two transactions are running:
+
+* Tx1: writes to keys {a, b, c} in that order
+* Tx2: writes to keys {a, c, d} in that order
+
+Let's assume that consistentHash(a) = {B}. In other nodes node B is the main data owner of key "a".
+
+These two transactions execute in sequence: after Tx1 locks “a”, Tx2 is not able to make any progress until Tx1 is finished. Making Tx2 wait for "a" 's lock doesn't guarantee Tx1 the chances to complete the transaction: another transaction running on node C might still be able to acquire lock on "a" before Tx1.
+
+==== Different locking semantic based on transaction locality
+With the hybrid approach, two transactions competing for the same key will be serialized if run on the same node, but would execute in parallel  if run on two different nodes. Even more, if a key locked by a transaction maps(consistent hash) to the same node where the transaction runs, an "eager lock" is practically acquired - so again the locking semantic is influenced by where the transaction runs. Whilst this is not necessarily incorrect it certainly brings a degree of unneeded complexity in using and understanding Infinispan's transactions.  
+
+== Optimistic locking
+In order to overcome the above shortcomings, an optimistic locking scheme will replace the hybrid one in Infinispan 5.1. With the optimistic approach no locks are being acquire until prepare time.
+
+=== How does it work
+Infinispan associates a transaction context (TC) with each Transaction, on the node where the transaction runs. This is a map-like structure used to store all the data touched by the transaction, as follows:
+
+* On a get(key) operation
+.. if key is in the TC then the value associated with it is returned. If not:
+.. if key maps, according to the consistent hash, to a remote node then value is fetched from the remote node (rpc).
+... If writeSkewCheck is enabled, then key's version at the moment of the read is also fetched. Then (key,value, version) is placed in the TC.
+... If writeSkewCheck is disabled the (key,value) pair is then placed in TC.
+... Note that in both above cases value can be null.
+.. if key maps to the local node the value is obtained from the local data container. The (key,value) and potentially version (see 1.2.1) is then placed in TC
+.. value (potentially null) is then returned to the caller.
+* On a put(key,value) operation
+.. if the TC contains an entry for key 
+... existing value associated with is cached to be returned to the caller
+... TC updated to reflect new (key, value) pair
+... value, as read as 2.1.1 is returned to the caller
+.. if the TC doesn't contain an entry for key
+... If unreliableReturnValues is enabled then (key, value) is added to the TC and null is returned 
+... if unreliableReturnValues is not enabled (default) then
+.... a get(key) is executed first, as described in 1. The return of the get is cached to be returned to the caller
+.... (key, value) is added to the TC
+.... The value cached at 2.2.2.1 is then returned to the user
+* During transaction completion:
+.. At prepare time,
+... a prepare message is multicasted to all the nodes owning keys written by the transaction. The prepare message contains the keys that should be locked together with the new values and potentially the versions read at 1.2.1 or 1.3.
+... Locks are acquired remotely, on each one of the keys written by the transaction. No locks are acquired for keys that were only read.
+... If a remote lock cannot be acquired within lockAcquistionTimeout milliseconds then an exception is thrown and prepare fails.
+... If all remote locks are successfully acquired
+.... If writeSkewCheck is enabled:
+..... for each remotely locked key, if its current version is different than the version read at 1.2.1 or 1.3 then an exception is thrown and transaction is rolledback
+..... these check does not require a new RPC, but executes in the scope of the RPC sent for acquiring the lock
+...  If writeSkewCheck is disabled the above check does not take place
+.. At commit time:
+... A commit message is sent from the node where transaction originated to all nodes where locks were acquired
+... On each participating node
+.... if writeSkewCheck is enabled then the version of the entry is increased
+.... the old values are overwritten by new ones
+.... locks are released
+* The atomic operations, as defined by the ConcurrentHashMap, don't fit well within the scope of optimistic transaction: this is because there is a discrepancy between the value returned by the operation and the value and the fact that the operation is applied or not:
+** E.g. putIfAbsent(key, value) might return true as there's no entry for key in TC, but in fact there might be a value committed by another transaction.
+**  Later on, at prepare time when the same operation is applied on the node that actually holds key, it might not succeed as another transaction has updated key in between, but the return value of the method was already evaluated long before this point.
+**  In order to solve this problem, if an atomic operations happens within the scope of a transaction, Infinispan forces a writeSkewCheck at commit time. The  writeSkewCheck, optional otherwise, makes sure that the decision made at prepare time still stands at commit time.
+
+=== Related
+* The JIRA tracking the implementation for this is link:https://issues.jboss.org/browse/ISPN-1131[ISPN-1131]

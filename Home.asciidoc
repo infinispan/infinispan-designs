@@ -1,0 +1,26 @@
+== Design Wiki
+Welcome to Infinispan's design wiki.
+Design documents are created and stored here.
+
+NOTE: This is the successor to link:http://community.jboss.org/en/infinispan[].
+Design documents have been migrated from that document to this location.
+
+== Contents
+See the *Pages* tab for a list of all design documents.
+
+=== Query
+
+Pages specific to query related topics.
+
+* https://github.com/infinispan/infinispan/wiki/Continuous-query-design-and-indexless-queries[Continuous queries and indexless queries]
+* https://github.com/infinispan/infinispan/wiki/Index-affinity-proposal[Index affinity]
+* https://github.com/infinispan/infinispan/wiki/A-continuum-of-data-structure-and-query-complexity[Continuum of data structure complexity]
+* https://github.com/infinispan/infinispan/wiki/Infinispan-query-language-syntax-and-considerations[Infinispan query language syntax and considerations]
+
+=== Event log and capture
+
+* https://github.com/infinispan/infinispan/wiki/Deelog:-direct-integration-with-Debezium[Deelog: direct integration with Debezium]
+* https://github.com/infinispan/infinispan/wiki/Hot-cache-via-Debezium[Hot cache via Debezium]
+
+== Rules
+Make sure you read link:https://github.com/infinispan/infinispan/wiki/Design-Wiki-Rules[the rules to writing design docs] before editing anything.

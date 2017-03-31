@@ -1,0 +1,249 @@
+= Continuous query design and indexless queries
+Emmanuel Bernard
+
+This page came out of the clustering meeting and the discussions that happened 2015-02-11.
+Amended by a discussion with Stelios on the accumulator case.
+
+
+== Use cases for continuous query
+
+Offer the user the ability to keep up to date a set of results
+(or a transformation thereof) matching a query.
+Instead of regularly "polling" and executing the query,
+the user expects to be notified of changes.
+A side effect is less expensive / better use of the resources.
+
+Here are a few query examples:
+
+1. return all users between 18 and 25
+   (assuming the `Person` entity has an `age` property and is updated by the user application)
+2. get all transactions higher than $2000 grouped by client
+3. get the average lap speed of F1 racers grouped by racer
+   (assuming the cache contains `Lap` entries and that laps are entered live during the race)
+
+Use case 1. will be referred as the matching use case.
+We want to know which users match at a given time.
+
+Use case 2. and 3. will be referred as the aggregation / accumulator use case.
+
+[NOTE]
+====
+We explicitly do not cover any time reasoning.
+For example if the `Person` has a `dateOfBirth` property,
+we cannot do a query like "return all users where dateOfBirth < now() - 18 years"
+as that would require to reason on the diff between "now" and the date of birth property
+rather than a change event on the grid.
+====
+
+== How are queries executed
+
+Query evaluation is based on event change and relies on clustered listener.
+Each node will evaluate event changes of the entries it owns.
+Each node will contain the structures described below.
+
+Queries are represented as trees of conjunction or disjunctions
+where the leaves are atomic predicates like `age > 18`.
+Atomic predicates are shared across all registered queries:
+all queries containing the `age > 18` predicate will share the same predicate object
+and the predicate evaluation will happens once for all queries.
+
+When an entity change happens, all queries involving that entity types are evaluated.
+Predicates are evaluated in a specific order - see below,
+and queries involving the evaluates predicate is being resolved if possible.
+Until unresolved queries are present, predicates keep being evaluated.
+
+Some predicates are called indexable predicates if the property is comparable.
+In that case an interval tree is used to evaluate the property once (or rather log(n) per event change
+for all predicates on that property.
+The indexed predicates are evaluated first.
+
+The query trees, predicates and interval trees are immutable / copy on write structures
+protected by a write lock upon query enlistment or delistment.
+
+[WARNING]
+.TODO
+====
+Adrian, that's a first draft, please amend.
+====
+
+=== Non continuous indexless queries
+
+These queries are executed the same way except that (well I don't remember, Adrian?)
+
+=== Continuous queries
+
+In the matching use case, we need to tell the user application
+
+- when an entry joins the matching corpus (add event)
+- when an entity leaves the matching corpus (remove event)
+
+That way the user application can keep a set of matching element and update it as required.
+To implement that, and keep each local listener / converter stateless,
+we need to evaluate the query on the old value, evaluate the query on the new value.
+
+* If the query on the old and new values both evaluate false, then the event is suppressed
+* If the query on the old and new values both evaluate true, then the event is suppressed
+** the event can likely be suppressed in the matching use case
+** the event is propagated in the aggregator / accumulator use case in some conditions (see next section)
+* If the query on the old value evaluates false and the query on the new value evaluates true,
+  then a add event is sent by the converter
+* If the query on the old value evaluates true and the query on the new value evaluates false,
+  then a remove event is sent by the converter
+
+Note that most predicates i.e. `name = "Emmanuel"` will be the same for the old and new value,
+so the execution of the two queries should be lower than twice as expensive.
+
+[NOTE]
+.TODO
+====
+Think about a `cache.delete` event.
+How do you evaluate ta query on that
+Esp negative predicates.
+Probably always as non matching queries.
+====
+
+In the aggregation / accumulation case, the add / remove events are not enough,
+you also need to receive the old and new state.
+For example, in a sum case, your sum accumulator needs to be updated with something like
+`sum += new.value - old.value`.
+
+[WARNING]
+.TODO
+====
+Do we need to also do predicates on the old and new state?
+
+Adrian seems to prefer the old query execution followed by the new one.
+And we need it to detect transition.
+====
+
+[WARNING]
+====
+There is an edge case.
+If the primary send the put event to the replicas and crashes at the "right" time,
+the coordinator will retry the operation.
+This retry information is provided by the clustered listener infrastructure.
+
+This essentially screws the old/new value comparison.
+At this stage, the listener need to send a `clear` state event to the user application
+so that it can clear its temporary cache.
+Depending if the user asked to run the continuous query on the initial state,
+we would need to rerun this initial state computation and send it again
+before resuming regular diff based events.
+====
+
+== How are continuous queries exposed to the user
+
+Here I am not talking about the actual specific API,
+rather I will focus on the pseudo JP-QL the data structure needed.
+
+[source]
+----
+// return all users between 18 and 25
+select key(user), user, transition() from User user where user.age >= 18 and user.age <= 25
+----
+
+The `key` method returns the entry key.
+The `transition()` method returns an enum with the following semantic:
+`ADD`, `REMOVE`, `CLEAR`, `MODIFY`
+
+* `ADD` means the entry was not matching but now matches
+* `REMOVE` means the entry was matching but no longer matches
+* `CLEAR` an operation retry likely happened, so the intermediate state needs to be cleared
+* `MODIFY` means the entry was and is still matching and that its state has evolved
+
+[NOTE]
+.TODO
+====
+Clear should really not be returned by a "JP-QL" property, it's a global event.
+====
+
+Other names opened for discussion: `UP` / `DOWN`, `IN` / `OUT`, `JOINS`, `LEAVES`.
+I prefer `JOINS` / `LEAVES` to differentiate it from an entry event type.
+
+The `MODIFY` case is useful for accumulators.
+They need to know that even if the entity has not changed transition,
+its involved state has changed and the accumulator might need to adjust its counters.
+
+[NOTE]
+.TODO
+====
+Should all of the state changes trigger a `MODIFY` notification?
+
+I think we can restrict the generation of the `MODIFY` event to the following case.
+
+* If the projection from the old state and the projection from the new state return different values, send the `MODIFY` notification
+* If the projection from the old and new state return the same values, then suppress the `MODIFY` notification
+
+The rational is that the user is only interested in the state he projects.
+
+We could even restrict further the comparison to the state that is involving both `old(state)` and `new(state)` (see below).
+This needs to be thought further.
+
+The alternative is to ask the user if he wants the `MODIFY` notification per query via a query option.
+====
+
+The user code needs to keep a set of matching users and update this set based on the transition flags.
+
+[source]
+----
+// get all transactions higher than $2000 grouped by client
+select transaction.userId from Transaction transaction where transaction.price > 2000
+----
+
+This one does not require the transition nor old values as we assume transactions are immutable and never removed.
+If transactions were mutable, then we would need to add the `transition()` to the projection.
+The client would keep a list of transactions
+
+[source]
+----
+// get the average lap speed of F1 racers grouped by racer
+select lap.driverId, new(lap.time), old(lap.time), transition() from Lap lap
+----
+
+The user application would keep a sum of time and the number of laps per driver (Map<DriverId, Averager>).
+
+* Upon positive transition, `sum = sum + new(lap.time); nbrOfLaps += 1;`
+* Upon negative transition, `sum = sum - old(lap.time); nbrOfLaps -= 1;`
+* Upon clear transition, `sum = 0, nbrOfLaps = 0` for all drivers
+* Upon modify transition, `sum = sum + new(lap.time) - old(lap.time)`
+
+The modify case represents a correction of an existing lap.
+
+[NOTE]
+.TODO
+====
+We need to find a way to express `oldLap` / `newLap` from the `lap` alias in a JP-QL natural way.
+I think the custom old / new methods are the best approach.
+In projection, `lap` would be equivalent to `new(lap)` unless it's a deletion.
+In which case it would be equivalent to `old(lap)`.
+Does that really works nicely?
+Should we have a `smart(lap)` to make it more explicit?
+
+An alternative is to not offer the new / old syntax in JP-QL but still offer access to the old and new state.
+The full projection of both the old and new state are returned in the `MODIFY` case.
+This might be a bit wasteful.
+`select lap.time, lap.driverId, transition() from Lap lap` would return two projected arrays: the old and the new state.
+====
+
+=== Why can't we expose accumulator operations in the DSL
+
+We can and will eventually add accumulator operations like `sum`, `avg`, `grouping` in the DSL.
+That way the computation would be implemented by the Infinispan clustered listener
+and the accumulated changed value would be provided to the user application.
+
+NOTE: for grouping the payload could be quite big actually
+
+The risk is that these additions to the DSL are not backward compatible and thus should be done
+in Infinispan 8's cycle.
+
+
+== TODO
+
+No longer use interval tree for boolean properties.
+
+== More reading
+
+On the full-text query front, a rather similar query indexing strategy has been implemented by Luwak on top of Lucene.
+It is worth looking at when we start addressing full-text continuous query.
+
+<http://blog.confluent.io/2015/04/13/real-time-full-text-search-with-luwak-and-samza/>

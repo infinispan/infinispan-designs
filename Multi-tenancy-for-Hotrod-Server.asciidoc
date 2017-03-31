@@ -1,0 +1,152 @@
+Context
+~~~~~~~
+
+In cloud enabled environments it would be beneficial to run Infinispan as a Service. Unfortunately current implement lacks multi tenancy and requires spinning separate Hot Rod server per tenant. 
+
+This design doc addresses those concerns and the implementation should allow running Infinispan in the Cloud environment and serving data for multiple tenants.
+
+Current implementation
+~~~~~~~~~~~~~~~~~~~~~~
+
+Currently in Infinispan 8/9 we have some sort of multi tenancy implementation - multiple `cache-containers`s in https://github.com/infinispan/infinispan/blob/278597ce4864e9e857ef5ab2650af5c08badae9d/server/integration/infinispan/src/main/resources/schema/jboss-infinispan-core_8_2.xsd#L39-L39[Infinispan Subsystem]. The problematic part is Infinispan Endpoint, which expects https://github.com/infinispan/infinispan/blob/614e35f3927f2c73b4d24703ef1d9ba0dd40fb39/server/integration/endpoint/src/main/resources/schema/jboss-infinispan-endpoint_8_0.xsd#L26-L26[a single cache-container per server].
+
+In other words - it is possible to have a multi tenant Hot Rod server now, but each `cache-container` would have to be served on separate port.
+
+Core Infinispan doesn't support multi tenancy (because of symmetry, it parses configuration file which looks like server side xml and it really can't handle multiple `cache-container` elements).
+
+Finally the Hot Rod protocol also assumes that it connects to a single `cache-container`.
+
+Scope of changes
+~~~~~~~~~~~~~~~~
+
+Our standard use cases don't need to be extended with multi tenancy (library mode). It is only a matter of implementing this functionality on the server side. Having said that, the changes should be limited to:
+
+* Hot Rod Server - it needs to serve data for multiple tenants on a single endpoint
+* Hot Rod Clients - they need to be able to connect to different tenant
+* Rest and Hot Rod protocol. Memcached server and Web Socket servers are out of the scope.
+
+The implementation idea - Multi Tenant Router
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The main idea for the implementation is to create another layer on the top of Protocol Servers (REST, Hot Rod), which is responsible for routing requests to proper server. The router will be attached to endpoint (instead of a Protocol Server instance) and will accept incoming requests and forward them to the proper server.
+
+Implementing the Router as a new service attached to the endpoint has the advantage of backwards compatibility in terms of configuration. In other words, the administrators will still be able to attach Protocol Server to the endpoint as they did prior to Infinispan 9 but additionally they could use the router.
+
+Configuration
+~~~~~~~~~~~~~
+
+Server side configuration will look like this:
+
+```
+<subsystem xmlns="urn:infinispan:server:endpoint:9.0">
+   <!-- note, no socket binding! -->
+   <hotrod-connector name="hotrod1" cache-container="default">
+      ...
+   </hotrod-connector>
+   <hotrod-connector name="hotrod2" cache-container="default">
+      ...
+   </hotrod-connector>
+   <!-- additional name attribute and also, no binding -->
+   <rest-connector name="rest1" cache-container="default" />
+   <rest-connector name="rest2" cache-container="default" />
+   <rest-connector cache-container="default" />
+   <router-connector socket-binding="router">
+      <servers>
+         <hotrod name="hotrod1" />
+         <hotrod name="hotrod1" />
+         <rest name="rest1" />
+         <rest name="rest2" />
+      <servers>
+      <!-- we need to support SNI here, explained why below -->
+      <encryption security-realm="other">
+         <sni host-name="sni" security-realm="other" />
+         <sni host-name="sni2" security-realm="other2" />
+      </encryption>
+   </router>
+</subsystem>
+```
+
+The Hot Rod client will use TLS/SSL SNI mechanism to inform the server about chosen tenant. Here is an example:
+
+```
+ builder
+   .security()
+      .ssl()
+      .sslContext(cont)
+      .sniHostName("sni")
+      .enable();
+```
+
+Implementation details
+~~~~~~~~~~~~~~~~~~~~~~
+
+The router will be bootstrapped the same way as all other Protocol Servers - using Netty. It will use the following pipeline:
+
+```
++--------------------+
+|      Request       |
++--------------------+
+          |
+          V
++--------------------+
+|        SNI         |
++--------------------+
+          | From this handler down we can read the content.
+          V    Up to this point it can be encrypted.
++--------------------+
+|       Router       | 
++--------------------+
+          | After the router decided where to send incoming message
+          V     it attachs Protocol Server's handlers below.
++--------------------+
+|   Chosen server    |
+|   handler stack    |
++--------------------+
+          |
+          V
++--------------------+
+|     Exception      |
++--------------------+
+```
+
+For HotRod, the router will determine target tenant based on SNI host name. Use cases without SSL are currently out of scope and if implemented in the future - will require additional operation in the Hot Rod Protocol.
+
+The router implementation for REST protocol will use Path prefixes. There is also possibility to use `host` header but currently it's out of the scope.
+
+Memcached and WebSocket are out of the scope.
+
+Note that existing Protocol Servers would need to be adjusted to support the router - they should not start the Netty server if there is no host/port binding. They should start Cache Managers instead.
+
+Note that this effectively means that each type of Protocol Server will spin up its own Router.
+
+Alternative approach
+~~~~~~~~~~~~~~~~~~~~
+
+Embed routing logic into the Hot Rod, REST and Memcached (to be considered if it's worth it) servers.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This approach would require modifying `ProtocolServer` and its configuration (`ProtocolServerConfiguration`) and putting multiple `EmbeddedCacheManager`s into it. We would also need to put additional `RoutingHandler` into the Netty configuration which would select proper `CacheManager` for the client. Each Multi Tenant `CacheManager` would possibly share the same transport (this is the easiest way for implementing it). 
+
+What do we gain by this?
+
+* We won't introduce another component on server side
+* The implementation will be simpler
+
+What are the pain points?
+
+* We will have `if(isMultiTenant())` statements all over the place
+* Since we host multiple `CacheContainer`s inside a single `ProtocolServer`, using different configuration (e.g. container 1 uses SSL whereas container 2 does not) might be problematic.
+
+Questions to confirm
+~~~~~~~~~~~~~~~~~~~~
+
+* Perhaps we can enforce all our clients to use SSL+SNI? If so - the routing protocol could be removed.
+** Update: Yes, we would like to enforce all clients to use SSL+SNI for now (possibly we adjust this in the future)
+* How to dynamically add a new Protocol Server to existing configuration? Does current implementation support this?
+** Yes, DMR supports it
+* Should we allow switching tenant once the client was started? How does this should work together with Near Caching (I'm assuming we should flush everything)?
+** Currently out of the scope
+* How to protect against scanning for non-protected tenants in Cloud Environment? This could be potentially used as an attack vector.
+** Since we use HTTPS, we should be good here
+
+

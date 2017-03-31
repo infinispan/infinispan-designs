@@ -1,0 +1,227 @@
+Authors: Adrian Nistor, Emmanuel Bernard
+
+== Syntax
+
+The basic syntax is a cleanup JP-QL + the embedding of the Lucene query syntax.
+
+TODO: describe the syntax
+
+The following sections enhance the syntax with more advanced full-text query support.
+
+=== Sort
+
+Full-text search allow sorting by score, by order in the index and by distance.
+
+[SOURCE]
+----
+select u from User u where u.firstname : "Emmanuel"
+         order by u.lastname, score(), index()
+----
+
+We use a function approach to differentiate properties from the full-text search operators.
+
+One can also order by distance from a given point.
+
+[SOURCE]
+----
+# when a single spatial predicate is present
+select u from User u
+         where u within (5 km) of (:latitude, :longitude)
+         order by distance()
+
+# when no or several spatial predicates are present, we need to express the distance and point to distance from
+# option 1
+select u from User u
+         order by distance(u, :latitude, :longitude)
+# option 2
+select u from User u
+         order by distance(u) from(:latitude, :longitude) desc
+----
+
+=== Spatial
+
+[SOURCE]
+----
+# here we use the default @Spatial index (Hibernate Search style
+# the latitude/longitude fields an driven by the annotation metadata
+select u from User u
+         where u within (5 km) of (:latitude, :longitude)
+
+# here we use an explicit spatial name (either the coordinates property
+# or a synthetic property representing the tuple latitude, longitude
+select u from User u
+         where u.location within (5 km) of (:latitude, :longitude)
+
+# here we use the actual latitude and longitude properties explicitly
+# this is not the Hibernate Search style, so one would need to find the
+# spatial index from these properties.
+# or a synthetic property representing the tuple latitude, longitude
+select u from User u
+         where (u.address,latitude, u.address.longitude) within (5 km) of (:latitude, :longitude)
+
+----
+
+The third option does not have my preference but felt more natural initially.
+Both variation 1 and 2 are the one targeted.
+
+[NOTE]
+====
+I'm not happy about the confusion of latitude vs longitude (ordering).
+Which one comes first, could we have a syntax making this explicit.
+Apparently, latitude, then longitude is the standard.
+Maybe that's goo enough?
+====
+
+=== All except
+
+This is a way to negate a (list of) full-text predicate meaning get all entries except the ones matching the sub predicates.
+
+[source]
+----
+# Preferred as it's more natural in the language
+select t from Transaction t
+         where not ( t.status : +"failed" or t.status : +"blocked" )
+
+# Alternative closer to the Hibernate Search Query DSL
+select t from Transaction t
+         where all except ( t.status : +"failed" or t.status : +"blocked" )
+----
+
+=== Boosting and constant score
+
+One can boost per term or per field.
+One can also force a score to be ignored or made constant for a subtree of the full-text queries.
+
+[source]
+----
+# term boosting
+# TODO check term boosting with Gustavo, does Hibernate Search supports term boosting
+select u from User u
+         where u.firstname : ("Adrian"^3 "Emmanuel")
+
+# field boosting option 1 (DO NOT IMPLEMENT)
+select u from User u
+         where u.firstname^3: ("Adrian" "Emmanuel")
+# field boosting option 2
+select u from User u
+         where u.firstname: ("Adrian" "Emmanuel")^3
+
+# sub query boosting based on option2
+select u from User u
+         where (u.firstname : "Adrian")^3 OR (u.firstname : "Emmanuel")
+----
+
+Now let's tackle constant score
+
+
+[source]
+----
+select u from User u
+         where ( (u.firstname : "Adrian")^3 OR (u.firstname : "Emmanuel") )
+               and (u.lastname : ("Nistor" "Bernard")) )^[constant=10]
+----
+
+=== Analyzer
+
+It is sometimes necessary to force a different analyzer between query time and index time.
+
+
+[source]
+----
+select u from User u
+         where u.firstname : "Emmanuel" with analyzer "ngram"
+               and u.lastname_3gram : ("ber" "rna" "nar" "ard")^6 with no analyzer
+----
+
+this syntax `with (no) analyzer` can only be present after a predicate and not on a composed query.
+
+=== More like this
+
+This compares an entity and expect to find similar entities.
+
+We will pass the entity or its key as parameter.
+This means Hot Rod clients need to extract the entity type to know the protobuf schema to then properly serialize the parameter payload.
+
+[NOTE]
+.TODO: General question on parameters
+====
+Adrian, do you plan on *guessing* the parameter type from the protobuf of the targeted entity?
+If not, how do you plan on serializing parameter values with the query?
+====
+
+[source]
+----
+# Compare to a user instance (not necessarily persisted)
+select u from User u
+         where u like :user
+         comparing (u.lastname^3, u.firstname)
+         with options (favorSignificantTermsWithFactor=3, excludeEntityUsedForComparison=true)
+
+# Compare to a user instance stored on a given key in the grid
+select u from User u
+         where u likeByKey :key
+         # we compare all fields since we did not give the compare keyword
+         with options (favorSignificantTermsWithFactor=3, excludeEntityUsedForComparison=true)
+----
+
+[NOTE]
+.Many options and workaround for it
+====
+Some full-text options require a bunch of fine-tuning options which would be hard to embed int he syntax unless we offer a generic system.
+more like this offers a possible solution
+
+[source]
+----
+where u.property someMagicFullTextSearchOperator [some values or parameters] with options (option1=value1, option2=value2)
+----
+
+In this model, options are generic key/values deemed less important and not requiring a keyword.
+This could be useful for things like boolean query options like `minimumNumberShouldMatch`, dismax query etc.
+====
+
+=== Explore DisMax
+
+Dismax is like a boolean query except the score of matching document is computed differently, it takes the best of the score of the document from all of the subqueries.
+https://www.elastic.co/guide/en/elasticsearch/reference/5.0/query-dsl-dis-max-query.html
+https://lucidworks.com/blog/2010/05/23/whats-a-dismax/
+
+Elasticsearch and Solr expose different approach to use DisMaxQuery and exposing it differently to the user.
+
+[source]
+----
+select u from User u
+         where u.fistname: "
+----
+
+=== Meta thinking
+
+Express all full-text things as function calls that can be nested:
+
+* AND(query1, queryn), OR
+* within(,,,)
+* morelikethis
+* fuzzy(field, fuzzyFactor)
+* etc
+
+And have a flat syntactic sugar to replace them (or a subset of their usage)
+
+=== Remaining syntax TODOs
+
+* discuss generic options (see above)
+* how to do the additional fuzzy options (since fuzzy is not a keyword but is embedded in the Lucene syntax
+
+== Query features around the syntax
+
+Both are operations atop a query that return additional and specific informations
+
+* explain
+* faceting
+
+
+== Security
+
+At the implementation detail, we need to ensure we are not susceptible to DoS attack from a rogue client query.
+Possible ideas:
+
+* stop if the query payload looks too big and could lead to a huge memory consumption upon parsing
+* TODO: what else

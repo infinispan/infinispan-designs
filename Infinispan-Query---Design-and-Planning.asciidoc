@@ -1,0 +1,135 @@
+
+=== Introducing the main problem with Lucene: limited to a unique writer
+To apply any change to a Lucene index, it must happen by a single IndexWriter index which owns an exclusive lock on the index.
+ 
+The actual implementation of "lock" in this context can be:
+
+* Directly managed by Lucene, usually implemented as a file based lock as it expects an index stored in a local mounted filesystem (with exclusive access).
+* Override the used implementation
+** The Infinispan Lucene Directory provides two alternative implementations
+*** Using marker objects stored in the cache.
+** Using an Infinispan lock. This requires to give control of the Transaction boundaries to the IndexWriter.
+* Disabled
+** This is safe to do only iff the application can guarantee some for of external locking. Might be convenient and efficient, but you'll miss any safety in case the external lock misbehaves.
+ 
+Not only is the index lock to be owned exclusively, but also one can not rely (in current Lucene versions) to have nodes optimistically try to acquire it: the timeout/retry mechanism was designed to make sure a single (JVM/app) would ever write to it, and waiting time would not be fair across nodes.
+
+* Different nodes could optimistically attempt to write on the index directly when it's very unlikely they have any contention
+** Provided they use a safe distributed Lock implementation
+** Provided they disable the exclusive_index_use option from Hibernate Search to release the lock as soon it's no longer required
+ 
+Evaluated strategies:
+
+* Modify the lock/retry mechanism by contributing to Lucene a way to better deal with contention.
+* Avoid the need of exclusive locks at all, rethinking the index structure and what the IndexWriter expects. That would be a very nice but complex patch (not sure if it's possible).
+* Use transactions to try writing to the index optimistically, and retry again at each write skew check failure.
+* Delegate to a single writer instance. This might not sound like very scalable but is very effective in practice.
+ 
+On effectiveness: it seems event Twitter uses a single IndexWriter, although they have a very efficient rewrite of it which might be open sourced soon. In case of need, one can of course still shard the index, and so scale up writing performance.
+ 
+=== Master delegation on shared indexes
+Of all strategies, our favourite today is to elect a node and have it responsible to write to the index on behalf of all other nodes.
+Why:
+
+* An IndexWriter is threadsafe but expensive to open
+* It is far more efficient to keep a single IndexWriter open rather than having multiple instances being opened/closed frequently
+* All alternatives require a mayor rewrite of the index structure, which is very complex to do without introducing mayor slowdowns during query time
+ 
+By electing a single node to act as IndexWriter master, the other nodes have to send changes to it using some form of bus.
+Hibernate Search currently has options for:
+
+. JGroups backend
+** node auto-election is highly experimental. Ales Justin is experimenting with it for CapeDwarf.
+. JMS backend
+** requires a JMS implementation
+** requires appropriate queue configuration
+** static choice of which node is the master (configuration not dynamic/cloud friendly)
+ 
+What we should add is introduce an Infinispan custom command to have this piggy-back on the Infinispan RPC mechanism without needing to worry for the JGroups details. The different options provided by org.infinispan.remoting.rpc.ResponseMode are a great match for the different options usually exposed by Hibernate Search.
+
+* https://hibernate.onjira.com/browse/HSEARCH-882 Provide an Infinispan backend
+** Have the custom commands live in this module?
+** This should also make sure that people don't have to setup several hairy configuration details.
+* https://issues.jboss.org/browse/ISPN-2066 Simplify configuration of an Infinispan backend in the Hibernate Search engine of Infinispan Query
+ 
+_Routing of the custom commands to the right IndexManager on the listener side?_
+ 
+Notes + open doubts:
+
+* how do custom commands deal with failing nodes / rehash operations?
+* The custom commands installed by the Hibernate Search module need to be able to receive messages too: classloading? need for Infinispan "session" ?
+* both myself and Tristan had working prototypes of this approach
+* ?
+ 
+=== Non-shared indexes
+We say it is a non-shared index when each node has an independent index, such as in the following configurations:
+
+* using an in-memory index (RAMDirectory).
+* using non-replicated local filesystem (FSDirectory).
+** could be non-local as well, as long as it's a properly UNIX locking filesystem and each Infinispan node has an idependent location.
+* use the Infinispan Directory "mounted" on a non clustered cache.
+** CacheStore could be use as well, as long as it's not shared.
+** Could also be configured with repl/dist, as long as each node uses a different index name (so other nodes are used for storage but ignore the values in it).
+ 
+ 
+==== with Replication
+When using replication, we need to make sure each node receiving updates from other nodes performs a local index update as well: a node must not only listen to local cache changes but also to changes initiated on another node (and replicated to local node). This implies listening to prepare and commit events.
+ 
+When a new node joins, its index must be brought in sync with the received state it will receive from other nodes:
+
+* Requires: ISPN-2086 Allow for event listeners to track entries moving in/out nodes during state transfer.
+** specifically with REPL.
+* Requires: ISPN-2087 Listen for state transfer events to keep indexes in sync with datacontainers.
+ 
+==== with Distribution - sharded index
+In this configuration each node will index exclusively the entries the node is owning. We call it sharded because each node only owns a fragment of the full index, but to the contrary of traditional index sharding (as in Hibernate Search) the distribution logic is ruled by the distribution of the values on the hash wheel: consequentially it's a dynamic distribution depending on the cluster topology and the consistent hash implementation used on the indexed values.
+
+* benefit:
+** scales on write operations, as each node will write directly on it's own independent and dedicated index.
+* problems:
+** queries on the local index will only return values owned on the current node. This migth be a valid use case for some applications making strong use of data locality, but it's more likely this configuration requires the use of Distributed Queries.
+** on each rehash large sets of indexes need to be rewritten on each involved node.
+*** Requires: ISPN-2086 Allow for event listeners to track entries moving in/out nodes during state transfer
+*** Requires: ISPN-2087 Listen for state transfer events to keep indexes in sync with datacontainers
+ 
+==== with Distribution - multicast index
+It should be possible to configure each node to store only data it owns (DIST) but still have a copy of the complete index by replicating index update notifications to all nodes.
+In Hibernate Search terminology: each node could be considered master so to apply locally originating update events but also listen for incoming requests for update. For each locally originating update, not only the local index is fed but also a broadcast event is sent to other nodes.
+ 
+* problems:
+** how a just joined node should retrieve an up-to-date index
+** heavy on network resources. pre-tokenizing of documents might help.
+ 
+This architecture is very similar to a shared index, in which the index is replicated using REPL caches. This approach doesn't look like very compelling, so currently low-priority: no JIRAs created.
+ 
+=== Avoid the problem altogether
+The above approaches are the common solutions. We can also think on totally different approaches, like including the index needs for Lucene directly in the datacontainer "fabric". I'd say directly in the entry, if that would be search-efficient; it could work by storing some elements in the entry and some in a datacontainer-global set of arrays
+
+* Index arrays have terms (frequency optional) distributed globally
+** or per-node arrays
+** if the index structure could be coupled directly to the virtual nodes, and transferred together in blocks containing {entries+index segment}, one would avoid re-indexing.
+* rather than documentIds one can have pointers to actual data entries
+* Have state-transfer keep data entries and index elements in sync, as part of the entry
+* Think about concurrent writes and transactionality
+* In Lucene 4.0 the FieldCache is going away again, but the new Flexible Indexing features allow (and encourage) to implement such a functionality in custom codecs, these could point directly to the cache entries (values).
+ 
+===== Many small indexes: immutable segments instead of state transfer listeners
+All proposed approaches using ISPN-2086 suffer from some fundamental flaws:
+
+* By reindexing the value entry, the result might not be the same, or actually it might not be possible to do, for some specific custom index mappings
+** if the "date of insertion" is indexed for example by a bridge
+** if a bridge refers to external resources (webservice call, reference to a PDF to be indexed)
+* Re-Indexing some entries might be very expensive, for example when storing large books we should reuse most of this processing
+ 
+A better solution might be to have data grouped in small groups (like the virtual nodes might be a good split point), and have each group indexed in it's own index segment, so then ship over the index segment to the other node when the virtual node is state-transferred. I guess this requires a rewrite of the data container?
+ 
+=== Configuration
+https://issues.jboss.org/browse/ISPN-2141
+
+The current configuration is too limited:
+
+* Hibernate Search is properties-based, Infinispan is not.
+** We currently refer to the Hibernate Search reference, but not all options make sense. Might be better to convert those properties in XSD - safe attributes, optionally leaving the properties for overrides? I definitely want to pre-set some properties which are better defaults in the case of Infinispan.
+* The option indexLocalOnly is too technical. This should be correctly inferred from the shared/not shared index option and the clustering mode being used by the indexed cache.
+ 
+To make this possible, we need https://issues.jboss.org/browse/ISPN-1978.

@@ -1,0 +1,49 @@
+=== Context
+Considering a from-the-book deadlock scenario, with two transactions Tx1 and Tx2 writing on two keys "a" and "b" in different order:
+
+* Tx1: writes on “a” then “b”
+* Tx2: writes on “b” then “a”
+
+With some “right” timing => deadlock during prepare time.
+A common approach for avoiding the above deadlock is by forcing all transactions to write the keys in the same order.
+
+Considering the previous example, if both Tx1 and Tx2 write the keys in lexicographical order:
+
+* Tx1: writes on “a” then “b”
+* Tx2: writes on “a” then “b”
+
+Now both transactions access (and lock) the keys in the same order so there's no possibility for deadlock.
+
+Key reordering is not always possible though:
+. it is not always possible to know all the keys written within a transaction a priori
+. there is not always possible to define a link:http://en.wikipedia.org/wiki/Total_order[total order] relation over the set of keys.
+
+==== Ordering keys for optimistic locking
+The above mentioned shortcomings can be overcome in a distributed grid based on link:Optimistic-Locking-In-Infinispan[optimistic locking]:
+
+. With optimistic locking, the lock acquisition takes place at prepare time. So before acquiring any lock, the set of keys for which locks are to be acquired is known
+. In order to infer a total order relation over the set of keys we can make use of the consistentHash function:
+** during prepare for each transaction order the keys based on their consistent hash value
+*** this assures that all transactions deterministically order their keys, as consistent hash is a deterministic function
+** acquire the locks in this sequence
+
+This means that locks are NOT acquired in the order in which the corresponding operation has happened. This doesn't have any impact for the user: lock acquisition takes place at prepare time and at this stage the user does not have any control over the transaction.
+
+There is a chance for two keys touched by the same transaction to have the same consistent hash value.
+
+In this case:
+
+* it is still possible to have deadlocks 
+* the possibility of consistent hash collision to happen is rather small, assuming the consistent hash has a uniform distribution
+* even if this collision happens, the consistency guaranteed are not violated
+
+=== Value
+This prepare-time ordering approach offers a simple and elegant way of reducing the number of deadlocks when the in memory-gird is configured with optimistic locking:
+
+* no effort is required from the user to define an total order relation over the keys placed in the grid
+* the computational effort for reordering the key is not significant
+* the user does not have to know all the keys used within a transaction a priori, that mens a very flexible programming model   
+
+=== Related
+* this optimization is tracked by link:https://issues.jboss.org/browse/ISPN-1132[ISPN-1132] which also contains the suggested design for implementing it.
+* Infinispan's link:Optimistic-Locking-In-Infinispan[optimistic locking] model

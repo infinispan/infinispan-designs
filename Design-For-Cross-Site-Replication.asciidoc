@@ -1,0 +1,135 @@
+== Requirements 
+After an link:https://community.jboss.org/docs/DOC-17546[initial round of discussions] it was agreed that, in the first iteration, Infinispan will only support  geographic data partitioning with fail-over.
+The diagram below shows a typical example of application  covered by these requirements:
+
+image::https://docs.google.com/drawings/pub?id=1yF569nmqrnrNXNYg2j1VNeWcX0FxYUDYg0OFx20AfK8&w=573&h=343[]
+
+* LON, NYC and SFO are sites where an application is deployed. The sites are geographically distributed in London (LON), New York (NYC) and San Francisco (SFO)
+* users in each geographic region  connect to the closest site, e.g. users in UK connect to LON site, users on US's East coast connect to NYC site and US's West coast to the SFO site
+* each region operates on its own disjunct data set. e.g. the data users in LON access is different than the one in NYC and SFO
+* each region's data has backups, for fault tolerance, in some or all of the peer sites. That means that at any time a site holds its own data together with backups for other sites
+* within each site it is possible to configure different numOwners (number of backups) for the local data and for backup data. E.g. LON might keep its numOwners=2 for the LON data partition and an numOwners=1 for the backed up NYC and SFO data partitions. Also NYC might have numOwners=2 for the NYC data partition and numOwners=1 for LON and SFO etc.
+* if a site goes down (failure, maintenance) the users in its region are (gracefully) migrated to a backup site. E.g. if LON goes down for maintenance the UK users are still able to access the system by connecting to the NYC site (graceful shutdown is detailed in a section below)
+* the numOwners can be changed dynamically in order to accommodate fail-over: e.g. if LON goes down and LON users are redirected to the NYC site, which has numOwners=1 for the LON data, then a system administrator can increase the numOwners to 2 for LON data in the NYC site.
+* the replication between sites is either synchronous or asynchronous (configurable)
+* inter-site state transfer is supported: e.g. when LON is shutdown and then restarted, on startup it  fetches state from NYC (which handled LON users during LON's outage). This includes both active and backup state
+* topology changes in one site does not affect other sites. E.g. adding a cache node in LON does not trigger state transfer from neither NYC nor SFO
+
+== Design
+The diagram below highlights the design considered for implementing this functionality.
+
+image::https://docs.google.com/drawings/pub?id=1nh9-hvQaabWqNS8woH7bC6vpOYs_08KOnN0kRDMH4Hc&w=717&h=626[]
+
+* each site contains several caches, each corresponding to a data partition. Each cache name corresponds to the site name for which the data is held. This allow configuring distinct numOwners for a data partition based on the fact that the given site is the main owner of the data or just a backup
+* the replication between the sites is handled by a new jgroups component called bridge. The site-master is the node (or set of them) that is part of the jgroups cluster on which the  caches are deployed. This bridge node(s) might not have any cache started on it (dedicated nodes)
+* the bridge  support fail-over of site-masters: if a site-master goes down another node picks up the site-master responsibility and data doesn't get lost/is retransmitted. Another requirement for the bridge end is store-and-forward: if the bridge goes down for a while, then existing sites should re-send the data that didn't get delivered during the outage
+* two options are supported for inter-site transaction propagation
+** one-phase-transactions: data is propagated from one site to the other during transaction commit
+** two-phase-transactions: both prepare and commit (if prepare is successful) messages are being send over. This approach has a lower performnace as it involvs two (expense) inter-site RPCs, but it supports the scenario in which data is being modified in both region's site and the backup
+** this is a per-cache configuration option
+* a site can  fetch state(both owned and backup)  from a running site
+** the site-master on the starter (S) sends a state request to the state provider site (P)
+** the  P site-master broadcasts a state request to all local members
+** upon receiving a state transfer request, each node iterates over its local state and, if primary owner of a key, pushes that entry to P's bridge end
+** P then forwards the state over the bridge to S which applies it
+** consistency and locking during inter-site state transfer follows the intra-site state transfer policy
+* graceful shutdown
+** the system administrator might want to turn off a site for maintenance without users's being dropped
+** during the graceful shutdown period the users that are already connected interact with the site to be be stopped, whilst newly connected users interact with a backup site
+** during the graceful shutdown period it is possible to have  writes on the same key on two different sites. In this situation the consistency can be handled through the two-phase commit transaction approach (see above)
+
+
+=== JGroups RELAY2
+The JGroups subsystem is responsible for clustering across sites (data centers). The JIRA for RELAY2 is https://issues.jboss.org/browse/JGRP-1433 and the design
+is https://github.com/belaban/JGroups/blob/master/doc/design/RELAY2.txt.
+
+
+=== State Transfer between sites (version 2)
+
+In order to take advantage of all the functionality provided by existing Non-Blocking State Transfer, such as migration of transactional state for ongoing transactions without stopping the world, the x-site state transfer is very similar/using NBST.
+
+Notes/Comments:
+
+* it supports a multiple site-master in cross-site replication
+* during stable state, the receiver site-master does not keep any special state. Its job is only to forward the commands to the correct nodes (when possible) or broadcast them.
+* in order to support concurrent state transfer and processing incoming requests, each NYC node keeps a collection of keys updated by incoming requests in order to discard the state transfer for that key, if the state transfer is delivered after the request.
+
+Algorithm:
+
+* consider we have a running site LON and a new site NYC is being started up and it requires a transfer of state from LON.
+* a system administrator connects to a node in LON site and issues a +pushState(NYC)+ command (admin console, JMX)
+* important to notice: the system administrator connects to a node in the producer site (vs state consumer site)
+* the node receiving the +pushState(NYC)+ request (x-site state transfer coordinator, XSTC) initiates the state generation on the LON site by using a (new) +XSiteStateProvider+ (very similar to the StateConsumerImpl).
+* a +XSStateRequestCommand+ is broadcast to all the nodes in LON site.
+
+==== Cross-Site state transfer for transactional cache (one phase)
+
+* When a LON node receives the +XSStateRequestCommand+, it sets NYC as active and it can start forwarding requests to NYC.
+** Simultaneously, each LON primary owner node starts iterating over all keys (in-memory and in persistence) and sends them, splitting them in chunks using +XsStatePushCommand+ (similar to +StateResponseCommand+).
+* Each node in NYC applies the corresponding state.
+* When a LON node finishes the sending of state, it notifies the XSTC (coordinator).
+* Finally, when all LON nodes have finished, the NYC site can start processing local requests.
+
+==== Cross-Site state transfer for transactional cache (two phases)
+
+* When a LON node receives the +XSStateRequestCommand+, it sets NYC as active and it can start forwarding requests to NYC.
+** Each primary owner in LON blocks temporarily the prepare/commit/rollback commands.
+** Also, they iterate over all the transaction in transaction table that are prepared but not committed/rollbacked (note: this is safe because if the transaction is committed, then the data is already in data container and it will be sent in the state transfer. Also, after this point, the prepares/commits/rollbacks are forward to the new site when received).
+** The, they transfer all the transactions to NYC, which prepares them.
+* Finally, they start to send the data as described above.
+
+*How to handle the Commit/Rollback reordering?*
+
+1. avoiding it. If we make the sent of the prepare transactions synchronously, the +CommitCommand+ can never be received before the +PrepareCommand+. 
+** pros: no more complicated logic to handle it
+** cons: higher perform impact since the sent of all prepared transactions can be expensive and it blocks the locally processing of other prepare/commit/rollback commands.
+
+2. handle it. if the remote transactions does not exists, then we can enqueue the +CommitCommand+. then, after the +PrepareCommand+ is received, we can safely process the +CommitCommand+.
+* pros: lower perform impact since the blocking time is only the time it takes to iterate over the transaction table (fast)
+* cons: the logic is more complex but at the same time, it should be relative simply to implement.
+
+==== Cross-Site state transfer for non-transactional cache
+
+In this scenario, the algorithm is the same as the first one. Since we have no transaction to move, we can start immediately to transfer the keys and forward the requests.
+
+=== Conflict resolution
+
+Conflict resolution can be solved by the application by allowing it to register some conflict resolution policy to handle it. However, some default policies can be implemented, such as:
+
+* randomly choose a winner site.
+* configure priorities per cache/site and the data from the highest priority cache/site wins.
+
+=== Logical components and RPCs
+image::https://docs.google.com/drawings/pub?id=1o7UAVOb-n_Jh2Fx7NE5SQ119FnN2IlxtHziu0O0SVPY&w=1222&h=488[]
+
+[options="header"]
+|======
+|Command|Description
+| `XSiteStateProvider` | is the component that manages the pushing of state on the producer cluster(in example above LON). As an object instance, there's only one of it in the producer site, on the node where the JMX pushState was triggered by the system administrator
+| `XsStateRequestCommand` | sent in the producer cluster (LON) from the XSisteStateProvider to all the local nodes that need to produce state
+| `XsStatePushCommand` | sent by the state producer nodes in LON to the site master of the consumer cluster (NYC)
+|======
+
+=== JMX tooling for state transfer
+
+[options="header"]
+|======
+|Operation|Description
+| `pushState( String siteName )` | This invokes, on a per-cache manager basis, the inter-site state transfer method.  This will use the configured backup policy of the cluster
+| `pushState( String siteName, String cacheName )` | Similar to the above, but invokes it only using the policy of the defined cache
+| `pushState( String siteName, String cacheName, int chunkSite )` | Similar to the above, with the number of keys to transmit at once
+| `stop( String siteName )` | This aborts any state transfer operation
+| `stop( String siteName, String cacheName)` | This aborts any state transfer operation
+| `KeyState getStatus( String siteName, String cacheName )` | This returns the number of keys that have been successfully pushed to the remote site vs. the number of keys to push.
+|======
+
+=== Out of scope for the first iterations
+Following list of features are considered as low priority for the first iteration. However, if time allows, these might be implemented:
+
+* the possibility for the site-master not to be part of the local cluster: first release might require a cache started on the site-maste
+
+=== Administrative Operations
+*TBD*
+
+=== Related design documents
+link:https://community.jboss.org/wiki/RAC[Reliable Asynchrounous Clustering]

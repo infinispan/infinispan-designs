@@ -1,0 +1,76 @@
+This document illustrates the requirements that an Infinispan CLI should implement in order to be useful and flexible. The CLI should be able to expose most (all) of the features of the Core API and of any modules which may be present on a running instance. Currently the only two methods which allow remote interaction with an Infinispan instance are JMX and Hot Rod, but both have limitations on the type of operations that can be performed.
+
+=== Operations
+The CLI should implement the following operations:
+
+* Selecting the default cache on which operations will be applied when an explicit cache is not specified
+* CRUD ops such as GET, PUT, REPLACE and REMOVE (with attributes for expiration)
+* Bulk ops such as CLEAR, PUTALL, possibly reading input from an external file (CSV, XML, JSON)
+* Set specific Flags
+* Batching START and END
+* Transaction BEGIN, COMMIT and ROLLBACK
+* Manually control otherwise automatic processes (eviction, rehashing, etc)
+* Query indexed caches
+* Start / Stop containers and caches
+* Modifying configuration at runtime
+* Obtaining statistics
+* Integration with some form of scripting (no need to invent something, just reuse JSR-223) to be used with Distributed Executors, the Map Reduce API and possibly Listeners
+
+=== Syntax
+* The syntax should be concise but comprehensible, using simple verb commands like GET, PUT, etc.
+
+ put key value
+ get key
+
+* Expiration, max idle times and flags:
+
+ put key value expires 1h maxidle 10m
+ put key value flags (force_sync)
+
+* Quoting of values should be optional where unambiguous.
+
+ put key 'my value'
+
+* Type for primitive values should be inferred when possible, using the usual Java notation
+
+ put key 1 # 1 is parsed as an int, and therefore boxed as an Integer when inserted in the cache
+ put key '1' # 1 is parsed as a string
+
+* Non-primitive values should be specified using JSON (Jackson) or XML (XStream) notation
+
+ put key { 'a', 'b' 'c' } # the value is an ArrayList
+ put key '<com.mycompany.myapp.Item><name>Widget</name></com.mycompany.myapp.Item>'
+
+* Multiple values (e.g. for putall) could be as follows:
+
+ put { key1: value1, key2: value2, key3: value3 }
+
+* Data should be displayed using different formatters
+
+ get key # display data using the value’s toString() method
+ get key as xml # display data in XML format (possibly using xstream)
+ get key as json # display data in JSON format (possibly using jackson)
+
+* The target cache for operations can either be a default cache or defined explicitly
+
+ cache myCache # selects the default cache
+ put key value # puts the entry in myCache
+ put otherCache.key value # puts the entry in otherCache
+
+* Scripting functions are declared inline as follows:
+
+ exec myCache callable:function(cache, keys) {}
+ mapreduce myCache mapper:function() {} reducer:function() {} collator:function() {}
+
+=== Processing
+The command interpreter would reside entirely within the server: the client is merely responsible for performing input and output and possibly "finger-candy" such as tab completion of commands. The interpreter also needs to handle statefulness of the CLI session (and therefore session management).
+
+=== Connectivity
+Most databases (SQL and noSQL alike) use their remote client port also for admin ops. We have the following possibilities:
+
+* Use Hot Rod (pro: our remote protocol, cons: requires the server to be running, we need to implement security)
+* Use JMX (pro: ubiquitous, security as part of the protocol, nothing to develop, cons: ?)
+* Use a custom port (possibly using the simple com.sun.net.httpserver as transport) (pro: dedicated for admin ops, cons: more implementation overhead)
+
+=== Security
+In case the transport we select does not provide its own security already, we need to consider at least authentication and possibly encryption.

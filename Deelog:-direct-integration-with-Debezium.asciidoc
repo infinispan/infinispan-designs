@@ -1,0 +1,96 @@
+== Contributors
+
+Emmanuel Bernard, Randall Hauch
+
+Initial proposal 2016-12-09
+
+== Goal
+
+Make Infinispan a Debezium source connector.
+Improve as much as possible change event capture minimizing the risk of change loss.
+The state in Kafka must be eventually consistent with the Infinispan state.
+
+This proposal also integrates lightly with Infinispan: it does not require a native event log system in Infinispan.
+
+== Proposal
+
+The total order would not be global across the system but per key.
+The accepted order will be the one eventually captured in Kafka.
+
+Integrate Debezium as a library and Infinispan interceptor in each node.
+That Debezium library will collect changes and write them in a Kafka queue.
+
+Each node has a Debezium connector instance embedded that listens to the
+operations happening (primary and replicas alike).
+This can be done via an Infinispan interceptor sending the events to a queue.
+That queue is listened by a Debezium thread.
+All of this process is happening async compared to the operation.
+
+Per key, a log of operations is kept in memory (it contains the key, the
+operation, the operation unique id and a ack status.
+
+If on the key owner, the operation is written by the Debezium connector
+to Kafka when it has been acked (whatever that means is where I'm less
+knowledgable and needs to be clarified).
+
+On a replica, the kafka partition is read regularly to clear the
+in-memory log from operations effectively stored in Kafka.
+If the replica becomes the owner, it reads the kafka partition to see
+what operations are already in and writes the missing ones.
+
+There are a few cool things:
+
+* few to no change in what Infinispan does
+* no global ordering simplifies things and frankly is fine for most
+ Debezium cases. In the end a global order could be defined after the
+ fact (by not partitioning for example). But that's a pure downstream
+ concern.
+* everything is async compared to the Infinispan ops
+* the in-memory log can remain in memory as it is protected by replicas
+* the in-memory log is self cleaning thanks to the state in Kafka
+
+This model works as long as we don't lose two owners consecutively before enough replicas have caught up (queue change wise).
+
+== When two owners die too fast
+
+We're in trouble.
+
+When two owners die too fast consecutively, we lose the event queue.
+We might also lose the state if the state transfer has not finished.
+
+In both situations, we are left with a state in Kafka which is different than the state in Infinispan and for which we cannot guarantee the eventual consistency.
+So we need to send the full state of the lost segments into Kafka as a state _reset_ and make sure that any entry present in Kafka but not in Infinispan are tombstoned.
+
+There are a few possible solutions:
+
+1. from the embedded Debezium, read the Kafka history (could be very long) and compare it from the state transfered state (either clean if we lost state or read back from the cache store); based on the comparison, send the appropriate key create/update and delete. This can be a slow and memory intensive process
+2. from the embedded Debezium, send a global tombstone for the whole segment or even the whole state and send the state afresh to Kafka. This avoids reading Kafka's history (slowness and memory consumption) but the full retransfer of state can be quite long
+3. use a two staged process: send the fact that we might have lost changes as a tombstone to Kafka plus the full segment state. A Debezium consumer would read that information and based on a kept local state build the diff and send less drastic stream of change to actual Debezium end consumers.
+
+ATM option 2 or 3 feel the most appropriate as building the diff on the Infinispan side would be costly and memory consuming.
+
+Would it help to do a many to one between segments and kafka partitions?
+
+== On initial cluster start
+
+We are also somewhat in trouble.
+How do we know that we had a clean stop with full queue flushed?
+
+If the queues have not been flushed, then we are back to the problem of the two owners dying too fast (see above).
+If the queues have been flushed properly, Kafka is in a correct state and we can carry on.
+
+== Additional cleaning
+
+When a replica is elected as new owner, we need to differentiate two statuses:
+
+* the new owner has no queue and thus we have lost change events and eventual consistency
+* the new owner has a queue which is either non empty (catch up to do) or empty because it was already synced. In this situation we are good on our eventual consistency promise.
+
+== Opened questions
+
+How to capture transaction
+
+== Alternative
+
+Rely on a full fledge log handled by Infinispan itself: see [Gustavo's proposal](https://github.com/infinispan/infinispan/wiki/Remote-Listeners-improvement-proposal).
+On that front, it looks like a full fledge log is more complex to get right and we can start with proposal Deelog before exploring the full-fledge log.
