@@ -55,9 +55,10 @@ Plan B: Create an uber-jar slim server
      * add runtime clustered configuration capabilities (store configs in an internal cache)
    * Security
      * Depend on Elytron for LDAP, Properties, Certificates, Kerberos, KeyCloak, etc integration
-   * Custom user deployments
+   * Custom user "deployments"
      * Load custom code placed in an extension directory (use JBoss Modules?)
      * Scan only at startup
+     * use META-INF/services/ discovery
    * Management
      * Runtime management performed via JMX
      * Revamp the Embedded CLI
