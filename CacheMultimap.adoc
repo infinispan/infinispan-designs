@@ -1,0 +1,79 @@
+= Native cache Mutimap
+
+The goal is to provide Infinispan Native CacheMultimap support. The proposal here is to start with the smallest interface implementation, in order to provide a proper API to the first multimap client, vert-x project.
+However, this API will evolve, and this first implementation must work on Embedded and Server mode.
+This first Multimap won't support duplicate values on the same key. 
+
+[source, java]
+.CacheMultimap.java
+----
+public interface CacheMultimap<K, V> {
+   boolean put(K key, V value); // <1> <2>
+
+   Collection<V> get(K key); // <3>
+
+   boolean remove(K key); //<4>
+
+   boolean remove(K key, V value);
+   
+   void remove(Predicate<V> p); //<5>
+}
+----
+<1> This method could return void as usual or a boolean. The first version of CacheMultimap won't allow duplicates. The boolean could indicate true if the value was been added and false if the value was not put.
+<2> "Put" indicates that the value is being somehow replaced on a key if the key already exists. An alternative could be to call it "add"
+<3> We might want to return a Set instead of Collection interface, because duplicates on same key won't be supported yet.
+<4> Calling this method "reset" has been suggested
+<5> vert-x implementation needs a way to remove values depending on a given Predicate. To achieve this, we need to provide an API or CacheSet<K> keySet(); method. 
+
+An alternative is to support only Async API instead of the standard sync API. 
+
+[source, java]
+.CacheMultimap.java
+----
+public interface CacheMultimap<K, V> {
+   CompletableFuture<Void> put(K key, V value);
+
+   CompletableFuture<Collection<V>> get(K key);
+
+   CompletableFuture<Boolean> remove(K key);
+
+   CompletableFuture<Boolean> remove(K key, V value);
+   
+   CompletableFuture<Void> remove(Predicate<V> p);   
+}
+----
+
+
+The underlying implementation will wrap a normal Cache. Some of the suggestions :
+
+== Core Module
+
+[source,java]
+----
+public interface EmbeddedCacheManager {
+ ...
+ 
+ <K, V> CacheMultimap<K, V> getCacheMultimap(String cacheName, boolean createIfAbsent);
+}
+
+----
+
+== Commons Module
+
+[source, java]
+----
+public class CacheMultimapFactory {
+
+   static <K, V> CacheMultimap<K, V> CacheMultimapFactory.get(Cache<K,Object> c) {
+      ...
+   }
+}
+----
+
+Apparently there is a problem with functional commands. They don't really work efficiently over Hot Rod (does get/replace in a loop). We would need to add some more handling in the protocol to allow for only partial replication of values and only 1 remote call.
+
+
+
+
+
+
