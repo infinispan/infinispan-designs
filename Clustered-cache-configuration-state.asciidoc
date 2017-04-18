@@ -1,0 +1,74 @@
+Clustered cache configuration / state
+=====================================
+
+Currently all members of a cluster manage their configuration, cache lifecycle and most of the state independently.
+This means that in order for a cache to be created across a cluster, each node must define its configuration locally and
+start it. There is also no validation that a cache configuration is compatible across nodes. Also, while some
+configuration attributes can be changed at runtime, this does not happen cluster-wide (although it might make sense for
+some configuration attributes to be asymmetric, e.g. capacity factor). Additionally, when new nodes join a running
+cluster, they should also start any clustered caches so that symmetry is maintained.
+
+Implementation
+--------------
+
+* Add a ___state cache handled by the InternalCacheRegistry. This cache will contain both cache configurations (stored
+as strings using the Infinispan XML schema) and a list of running caches (do we need to store more state ?).
+* Introduce a new ClusteredCacheContainer API (see below)
+* Cache configuration and lifecycle performed via the old DefaultCacheManager API will continue to behave as it does
+currently (i.e. each node is independent)
+* Allow configuration Attributes to be either Global or Local.
+* Implement a variant of equals (equalsIgnoreLocal ?) for Configuration objects to validate congruency ignoring local
+attributes.
+* Support the +start+ configuration attribute for caches (which can be either +LAZY+ or +EAGER+) so that EAGER caches
+are automatically started when the CacheManager is started.
+* When a node joins a cluster it retrieves the list of running caches from the state cache and starts them  using
+the configuration from the state cache. The configuration coming from the state cache is validated against any local
+configuration which might be present in the DCM's ConfigurationManager.
+* Modifying a Global configuration Attribute at runtime will propagate the change to all nodes.
+
+API
+---
+
+Add a cluster() method to the DefaultCacheManager() which returns an implementation of a ClusteredCacheContainer
+interface. This interface should expose methods which affect the entire cluster:
+
+
+[source,java]
+----
+/**
+ * Creates a cache across a cluster using the supplied template name.
+ *
+ */
+Cache<?, ?> createCache(String name, String template);
+
+/**
+ * Stops and removes a cache across the cluster.
+ */
+void removeCache(String name);
+
+/**
+ * Starts a cache on all nodes in the cluster. If a
+Cache<?, ?> startCache(String name);
+
+/**
+ * Defines a configuration across a cluster. The configuration is "serialized" to its XML representation.
+ */
+Configuration defineConfiguration(String name, Configuration configuration);
+
+/**
+ * Removes a configuration across a cluster.
+ */
+void undefineConfiguration(String name, Configuration configuration);
+
+
+/**
+ * (Already exposed on the DCM, but it makes more sense here)
+ */
+ClusterExecutor executor();
+
+/**
+ * Performs a cluster-wide shutdown. If global state persistence is enabled, the ___state cache will be persisted. On
+ * restart any caches that were running are started.
+ */
+void shutdown();
+----
