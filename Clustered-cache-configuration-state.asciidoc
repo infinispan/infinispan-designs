@@ -29,46 +29,5 @@ configuration which might be present in the DCM's ConfigurationManager.
 API
 ---
 
-Add a cluster() method to the DefaultCacheManager() which returns an implementation of a ClusteredCacheContainer
-interface. This interface should expose methods which affect the entire cluster:
+Add a cluster() method to the DefaultCacheManager() which returns an cluster-affecting implementation of the EmbeddedCacheManager interface. Methods such as +defineConfiguration()+, +undefineConfiguration()+, +startCaches()+, will affect the entire cluster.
 
-
-[source,java]
-----
-/**
- * Creates a cache across a cluster using the supplied template name.
- *
- */
-Cache<?, ?> createCache(String name, String template);
-
-/**
- * Stops and removes a cache across the cluster.
- */
-void removeCache(String name);
-
-/**
- * Starts a cache on all nodes in the cluster. If a
-Cache<?, ?> startCache(String name);
-
-/**
- * Defines a configuration across a cluster. The configuration is "serialized" to its XML representation.
- */
-Configuration defineConfiguration(String name, Configuration configuration);
-
-/**
- * Removes a configuration across a cluster.
- */
-void undefineConfiguration(String name, Configuration configuration);
-
-
-/**
- * (Already exposed on the DCM, but it makes more sense here)
- */
-ClusterExecutor executor();
-
-/**
- * Performs a cluster-wide shutdown. If global state persistence is enabled, the ___state cache will be persisted. On
- * restart any caches that were running are started.
- */
-void shutdown();
-----
