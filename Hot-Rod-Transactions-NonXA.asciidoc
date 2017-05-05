@@ -1,0 +1,313 @@
+Lightweight transactions for Hot Rod
+====================================
+
+*JIRA*: https://issues.jboss.org/browse/ISPN-7807[ISPN-7807]
+
+== Introduction
+
+This document is a design document for lightweight Hot Rod transaction and Synchronization enlistment. Full XA support will be described in another document.
+
+The transaction state is kept in the client during the transaction execution and the server is only aware of the transaction when the client wants to commit.
+
+== Changes to existing code
+
+Since a default `TransactionManager` is needed for the client, a base implementation is extracted from the `EmbeddedTransactionManager` to commons package.
+The `Transaction`'s implementation (and it dependencies) will be moved to commons package.
+
+== Limitation and Requirements
+
+* In the client, the transaction will be enlisted as `Synchronization`.
+XA support will be added later in another document.
+
+* The server will use `REPEATABLE_READ` isolation.
+
+* The server will use the `EmbeddedTransactionManager`.
+It needs to invoke the prepare and commit/rollback phase individually.
+
+* [.line-through]#Recovery needs to be enabled in the server.
+It prevents the transaction to be automatically rolled-back when the originated leaves the cluster.#
+
+* Any locking is supported.
+
+== Transaction Enlistment
+
+The remote cache is registered in the `TransactionManager` as `Synchronization`.
+
+A global `SynchronizationAdapter` will be implemented per `RemoteCacheManager`.
+This means that if multiple remote caches are involved in a transaction, only a single `Synchronization` is registered in the transaction.
+It main goal is to translate and forward the requests from `TransactionManager` to the remote caches.
+
+When multiple remote caches are involved, the prepare phase is handled synchronously and orderly.
+The main reasons for this are:
+
+* *safety*: avoids any deadlocks between remote caches since the remote caches are prepared at the same order.
+* *optimization*: if a remote cache fails to prepare, the remaining remote caches are not contacted.
+
+The second phase (commit/rollback) can be done in parallel in all the remote caches, but for the first implementation, it will be done sequentially.
+
+== Transaction's Isolation Level
+
+As said, only `REPEATABLE_READ` will be supported. The reasons are:
+
+* It is the strongest guarantee supported by the server,
+
+* It offers a better performance by skipping interaction with the server at each requests,
+
+* In the future, `READ_COMMITTED` will be removed.
+
+== Description
+
+Each remote-cache will have a transaction context associated to a specific transaction.
+Each key read or write will be stored in this context.
+Also, metadata needed for transaction validation is stored in the context.
+
+At the first operation, the remote cache registers itself as a participant in the `SynchronizationAdapter`.
+
+=== Transaction execution
+
+Read operations is executed as following:
+
+* If the key exists in transaction context, return its value;
+* Otherwise, fetch the value and metadata from the server and store it in the transaction context.
+
+Write operations is executed as following:
+
+* If the key doesn't exists in the transaction context and it is required (conditional value or needs to return previous value), fetches value and metadata from the server and store it in the transaction context;
+* Applies the operation based on the value in the transaction context and updates its value.
+
+NOTE: The value and metadata can be fetch from any node in the cluster.
+
+=== Transaction commit
+
+A `Transaction` is committed in 2 phases: `beforeCompletion()` and `afterCompletion()`.
+
+In `beforeCompletion()`, the client collects the written keys and sends them to the server (any member in cluster).
+The following information is sent:
+
+* XID - this is the transaction id;
+* For each key, it sends:
+** The key;
+** The `ReadState`;
+** The version read (if any);
+** The new value;
+** The metadata;
+
+[NOTE]
+======
+The `ReadState` represents the following information:
+
+* `NOT_READ`: the key wasn't read before the write;
+* `NON_EXISTING`: the key was read before write and it didn't exist;
+* `READ`: The key was read before write and it exists (the versionr read is required)
+======
+
+In the server side, when the request is received, it replays the transaction.
+A new transaction is created and set its XID based on the XID received (to avoid any XID translation).
+
+For each key received, the server performs the following:
+
+* It checks the `ReadState` value:
+** `NOT_READ`: it doesn't fetch the previous value.
+** `NON_EXISTING`: it checks if the key doesn't exist.
+If the key exists, the transaction is rolled-back.
+** `READ`: it fetches the value and metadata.
+Then it compares the version received with the version stored in the metadata.
+If they don't match, the transaction is rolled-back.
+* Finally, it performs the write.
+
+When all keys are handled, the server invokes `EmbeddedTransaction.runPrepare()`.
+The outcome is sending back to the client.
+
+The client receives the outcome and marks the transaction to rollback if the server failed to prepare.
+
+Finally, in `afterCompletion()`, the client only sends the commit or rollback request:
+
+* XID
+* `COMMIT` or `ROLLBACK` request.
+
+In the server, if the transaction was executed locally, it invokes the `EmbeddedTransaction.runCommit(`).
+Otherwise, use the `RecoveryManager` to commit or rollback the transaction.
+
+NOTE: Not sure if the `RecoveryManager` can be used or if I need to create a Global Transaction Table.
+
+== Hot Rod Protocol Details
+
+=== Operation Codes
+
+4 new operation codes:
+
+|===
+|Operation Code | Response Operation Code |Operation
+
+|0x3B
+|0x3C
+|Prepare Request
+
+|0x3D
+|0x3E
+|Commit Request
+
+|0x3F
+|0x40
+|Rollback Request
+
+|===
+
+=== Messages description
+
+The transaction id (XID) is present on the request header.
+However, it will be changed to support variable size XID
+
+.XID
+[cols="<.^,<.^,<"]
+|===
+|Field Name |Size |Value
+
+|Format ID
+|long
+| The XID format.
+
+|Length of Global Transaction id
+|byte
+|The length of global transaction id byte array. It max value is `64`.
+
+|Global Transaction Id
+|byte array
+|The global transaction id.
+
+|Length of Branch Qualifier
+|byte
+|The length of branch qualifier byte array. It max value is `64`.
+
+|Branch Qualifier
+|byte array
+|The branch qualifier.
+
+|===
+
+
+.Prepare Request (operation code `0x3B`)
+[cols="<.^,<.^,<"]
+|===
+|Field Name |Size |Value
+
+|Header
+|variable
+|Request header
+
+|OnePhaseCommit
+|byte
+|When it is set to `1`, the server will use one-phase-commit if available (XA only)
+
+|Number of keys
+|vInt
+|The number of keys
+
+3+^|For each key
+
+| Key Length
+| vInt
+| Length of key.
+Note that the size of a vInt can be up to 5 bytes which in theory can produce bigger numbers than `Integer.MAX_VALUE`.
+However, Java cannot create a single array that’s bigger than `Integer.MAX_VALUE`, hence the protocol is limiting vInt array lengths to `Integer.MAX_VALUE`.
+
+|Key
+|byte array
+|Byte array containing the key
+
+|Version Read
+|long
+|The version read. `0` if `ReadState` is `NOT_READ` or `NON_EXISTING`.
+
+
+|Control Byte
+|Byte
+|The first 2 bits are the `ReadState`: +
++0x01+ = `NOT_READ` +
++0x02+ = `NON_EXISTING` +
++0x03+ = `READ` +
+The 3rd bit represents the remove or put operation.
+If `1`, the operation is a remove and the next data is not sent.
+If `0`, the operation is a put.
+
+|Lifespan
+|vInt
+|Number of seconds that a entry during which the entry is allowed to life.
+If number of seconds is bigger than 30 days, this number of seconds is treated as UNIX time and so, represents the number of seconds since 1/1/1970.
+If set to `0`, lifespan is unlimited.
+
+|Max Idle
+|vInt
+|Number of seconds that a entry can be idle before it’s evicted from the cache.
+If `0`, no max idle time.
+
+|Value Length
+|vInt
+|Length of value
+
+|Value
+|byte-array
+|Value to be stored
+
+|===
+
+.Commit and Rollback Request (operation code `0x3D` and `0x3F`)
+[cols="<.^,<.^,<"]
+|===
+|Field Name |Size |Value
+
+|Header
+|variable
+|Request header
+
+|===
+
+.Response (operation code `0x3C`, `0x3E` and `0x40`)
+[cols="<.^,<.^,<"]
+|===
+|Field Name |Size |Value
+
+|Header
+|variable
+|Response header
+
+|Status
+|byte
+|One of the following values +
++0x00+ OK +
++0x01+ Invalid configuration (server side) +
+
+|XA return code
+|vInt
+|The XA code representing the prepare response. +
+If `Status==0x00`, this field value is
+`XA_OK(0)`, `XA_RDONLY(3)` or any of the error codes (see `XaException`). +
+If `Status==0x01`, this field is zero.
+
+|===
+
+== Failure Scenarios
+
+Nodes crashing or topology changes in the server doesn't affect the transaction during its execution.
+However, some scenarios during the transaction prepare phase need to be handled.
+Note that, after the transaction is prepared, the commit or rollback phase can happen in any node and it is free to be retried.
+
+=== Topology change during transaction replay and prepare phase
+
+Nodes joining or leaving during the transaction replay is already handled.
+However, a special attention is needed if the originator crashes.
+
+The client is allowed to retry the prepare phase in another node, but the server needs to ensure that the `GlobalTransaction` is the same.
+This requirement is needed for `PESSIMISTIC` locking mode due to the lock acquisition at transaction runtime.
+
+This solution covers the case where the client sends the prepare and the server crashes without sending the reply.
+
+=== Topology change during transaction second phase
+
+In this scenario, the client has the outcome of the prepare phase and it is free to retry the commit or rollback request in whatever node it wants.
+
+=== Client crashes/disconnects
+
+After a prepare phase, the locks are held until the client sends the commit or rollback request.
+If the client crashes, the locks may be held forever (or until a system administrator force the transaction to commit or rollback via Recovery).
+Unfortunately, there is no client failure detector and a system administrator intervention is needed.
