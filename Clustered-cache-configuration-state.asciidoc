@@ -11,11 +11,11 @@ cluster, they should also start any clustered caches so that symmetry is maintai
 Implementation
 --------------
 
-* Add a ___state cache handled by the InternalCacheRegistry. This cache will contain both cache configurations (stored
-as strings using the Infinispan XML schema) and a list of running caches (do we need to store more state ?).
-* Introduce a new ClusteredCacheContainer API (see below)
-* Cache configuration and lifecycle performed via the old DefaultCacheManager API will continue to behave as it does
-currently (i.e. each node is independent)
+* Change the current behaviour of the GlobalStateManager, enabling it internally by default. Persistence of state will however continue to be enabled only if requested by the user.
+* The GlobalStateManager adds a ___state cache handled by the InternalCacheRegistry. This cache will contain both cache configurations (stored as strings using the Infinispan XML schema) and a list of running caches (do we need to store more state ?).
+* Cache configuration and lifecycle performed via the usual DefaultCacheManager API will continue to behave as it does
+currently (i.e. each node is independent).
+* Add a new API for managing clustered configuration and state (see below)
 * Allow configuration Attributes to be either Global or Local.
 * Implement a variant of equals (equalsIgnoreLocal ?) for Configuration objects to validate congruency ignoring local
 attributes.
@@ -29,5 +29,5 @@ configuration which might be present in the DCM's ConfigurationManager.
 API
 ---
 
-Add a cluster() method to the DefaultCacheManager() which returns an cluster-affecting implementation of the EmbeddedCacheManager interface. Methods such as +defineConfiguration()+, +undefineConfiguration()+, +startCaches()+, will affect the entire cluster.
+Add a cluster() method to the DefaultCacheManager which returns a cluster-affecting implementation of the EmbeddedCacheManager interface. Methods such as +defineConfiguration()+, +undefineConfiguration()+, +startCaches()+, will affect the entire cluster. All other methods will be delegated to the underlying local DefaultCacheManager.
 
