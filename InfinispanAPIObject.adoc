@@ -1,0 +1,36 @@
+== Infinispan API
+
+=== Motivation
+
+Being able to offer a simple API to create clustered caches and improve API usability
+
+
+== Infinispan
+
+This factory will help to create a cluster of Infinispan.
+
+Whenever a new member is added on the VM, the implicit configuration will handle the visibility between members.
+
+```java
+
+public final class Infinispan {
+
+    private Infinispan() {}
+
+    //Constructs and starts a new instance of the CacheManager, using the system defaults.
+    public static EmbeddedCacheManager createClusteredCache() {}
+
+    public static EmbeddedCacheManager createClusteredCache(Configuration configuration) {}
+
+    public static EmbeddedCacheManager createClusteredCache(GlobalConfiguration globalConfig, Configuration configuration) {}
+
+    // Return the running CacheManagers on the cluster in the calling VM
+    public static Set<EmbeddedCacheManager> getAllMembers() {}
+
+    // Stop all the members on the VM
+    public static void stopAll() {}
+}
+
+```
+
+
