@@ -7,30 +7,29 @@ This first Multimap won't support duplicate values on the same key.
 [source, java]
 .CacheMultimap.java
 ----
-public interface CacheMultimap<K, V> {
-   boolean put(K key, V value); // <1> <2>
+public interface MultimapCache<K, V> {
+   void put(K key, V value); // <1>
 
-   Collection<V> get(K key); // <3>
+   Collection<V> get(K key); // <2>
 
-   boolean remove(K key); //<4>
+   boolean remove(K key); //<3>
 
    boolean remove(K key, V value);
    
-   void remove(Predicate<V> p); //<5>
+   void remove(Predicate<V> p); //<4>
 }
 ----
-<1> This method could return void as usual or a boolean. The first version of CacheMultimap won't allow duplicates. The boolean could indicate true if the value was been added and false if the value was not put.
-<2> "Put" indicates that the value is being somehow replaced on a key if the key already exists. An alternative could be to call it "add"
-<3> We might want to return a Set instead of Collection interface, because duplicates on same key won't be supported yet.
-<4> Calling this method "reset" has been suggested
-<5> vert-x implementation needs a way to remove values depending on a given Predicate. To achieve this, we need to provide an API or CacheSet<K> keySet(); method. 
+<1> "Put" indicates that the value is being somehow replaced on a key if the key already exists. An alternative could be to call it "add"
+<2> We might want to return a Set instead of Collection interface, because duplicates on same key won't be supported yet.
+<3> Calling this method "reset" has been suggested
+<4> vert-x implementation needs a way to remove values depending on a given Predicate. To achieve this, we need to provide an API or CacheSet<K> keySet(); method.
 
 An alternative is to support only Async API instead of the standard sync API. 
 
 [source, java]
-.CacheMultimap.java
+.MultimapCache.java
 ----
-public interface CacheMultimap<K, V> {
+public interface MultimapCache<K, V> {
    CompletableFuture<Void> put(K key, V value);
 
    CompletableFuture<Collection<V>> get(K key);
@@ -46,33 +45,52 @@ public interface CacheMultimap<K, V> {
 
 The underlying implementation will wrap a normal Cache. Some of the suggestions :
 
-== Core Module
 
-[source,java]
-----
-public interface EmbeddedCacheManager {
- ...
- 
- <K, V> CacheMultimap<K, V> getCacheMultimap(String cacheName, boolean createIfAbsent);
-}
-
-----
-
-== Commons Module
-
-[source, java]
-----
-public class CacheMultimapFactory {
-
-   static <K, V> CacheMultimap<K, V> CacheMultimapFactory.get(Cache<K,Object> c) {
-      ...
-   }
-}
-----
-
-Apparently there is a problem with functional commands. They don't really work efficiently over Hot Rod (does get/replace in a loop). We would need to add some more handling in the protocol to allow for only partial replication of values and only 1 remote call.
+Apparently there is a problem with functional commands.
+They don't really work efficiently over Hot Rod (does get/replace in a loop).
+We would need to add some more handling in the protocol to allow for only partial replication
+of values and only 1 remote call.
 
 
+== Embedded Multimap
+
+A new maven module is created.
+
+To create a multimap cache
+
+```java
+      EmbeddedCacheManager cm = ...
+      MultimapCacheManager multimapCacheManager = EmbeddedMultimapCacheManagerFactory.from(cm);
+      multimapCache = multimapCacheManager.get("test");
+
+      multimapCache.put("k", "v");
+
+```
+
+
+== Infinispan Server Multimap
+
+There are at least two options for the implementation
+
+=== Option A
+
+We define a new interface called RemoteMultimapCache that won't support methods with lambdas, but the most
+common and useful methods will be supported.
+
+We implement it using the existing OperationsFactory. We enrich the header or we add a flag so the server will know that this
+call is meant to be over a multimap. So the internal implementation will grab the cache manager and the cache, create the
+ EmbeddedMultimapCache and call the methods over that instance instead of over the regular cache methods.
+
+- + Code reuse
+
+- - Spaghetti code risk
+
+=== Option B
+As for Counters, Locks and any other module built on top of the core, we will implement new operations for hotrod that are specific
+for multimaps.
+
+- + Clear separation of modules
+- - Duplication of code risk
 
 
 
