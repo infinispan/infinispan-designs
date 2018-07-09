@@ -1,3 +1,5 @@
+# Second level cache design
+
 Infinispan implementation of second level cache (2LC) supports all Hibernate [access types](https://github.com/hibernate/hibernate-orm/blob/master/hibernate-core/src/main/java/org/hibernate/cache/spi/access/AccessType.java) but supported combinations of access type and cache modes vary. 2LC can work in invalidation mode, replicated/distributed mode or locally - this design document will focus on clustered caches since local caching is usually implemented as invalidation mode just without sending any messages to other nodes.
 
 In the past 2LC used Infinispan transactional modes to prevent publishing changes uncommitted in the JTA transaction. During Hibernate ORM 5.0 development the caching was reimplemented, integrating directly into Hibernate's unified JTA/JDBC SPI. There are two motivations: optimized performance (non-transactional cache is generally faster) and ability to run with JDBC-only transactions. The support for transactional mode in Infinispan was kept until (not including) Hibernate ORM 5.3: we've dropped the burden of maintenance at that point.
@@ -68,5 +70,7 @@ Queries required transactional caches in the past, too. To not expose the uncomm
 ClusteredTimestampsRegionImpl does not retrieve timestamps from the cache directly, instead it registers listener for modification on the cache and inserts the values to a concurrent hash map which is used for reading later on. This probably is an old performance optimization for JBoss Cache that may have lost the reason, but the truth is already hidden beneath the sands of time.
 
 ---
+
 (1) even at the risk of providing inconsistent image: when ran in transactional mode and a transaction T1 updates two keys A -> 1, B->1 to A -> 2, B -> 2, second transaction T2 may read A -> 2, B -> 1 or vice versa. This breaks the traditional ACID isolation which protects reads with short locks and writes with long locks.
+
 (2) in distributed mode only if the node is an owner
