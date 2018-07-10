@@ -15,11 +15,19 @@ This property should be preserved even in the presence of an error (e.g. RPC fai
 
 In addition to these two, all external calls should result in at most one in-place update. Infinispan now offers API powerful enough to execute this, so we should avoid any putIfAbsent - replace loops that involve RPC.
 
+## 2LC metadata storage
+
+Infinispan stores keys, values and metadata. In 2LC case the keys are either entity ids (when `hibernate.cache.keys_factory=simple` - this is not default, though) or tuples that carry the entity type, tenant id and the entity id (`hibernate.cache.keys_factory=default`). Metadata is not used extensively - 2LC uses only expiration and maxIdle. It gets a bit more complicated with the values.
+
+Traditionally 2LC implemented only the invalidation mode and data were expected to be evicted from the cache as needed. The entity cache contained only Hibernate-dehydrated entities as values (*2), the 2LC metadata (such as the fact that entry is locked and cannot be updated, or that we had a cache miss and expect a `putFromLoad` - so called *pending put*) was stored in another local-mode cache - for `org.my.Entity` that would be called `org.my.Entity-pending-puts`. This cache was accessed solely through `PutFromLoadValidator`. The reason to keep this as another cache rather than plain concurrent hash map is that we use expiration on this map to avoid running out of memory when something is not cleaned up properly (the data in this cache is usually short-lived).
+
+Replicated/distributed strategies went in a different direction, keeping both in single cache. Since it is not safe to deliberately evict locking information, this cache must not be configured for eviction (*3). Modifying the values in-place calls for functional commands but these were not available when the code was written, therefore regular `PutKeyValueCommand`s were used and `CallInterceptor` was replaced by an interceptor that included special handling for applying the commands. Luckily, functional commands are now part of Infinispan and recent versions use this feature to apply the modifications.
+
 ## Cache modes
 
 While 2LC heavily modifies how Infinispan works, the basic idea behind cache modes stays: invalidation mode stores data only locally and invalidates other modes, replicated mode keeps all data on all nodes (therefore even `putFromLoads` push data to other nodes) and distributed mode works as replicated mode but updates only a subset of the nodes based on the key - the owners.
 
-What is different is the order of replication. Vanilla Infinispan needs to use single order of updates on all owners and does so (in non-tx mode) by routing the update to primary owner and replicating to the other owners from there. In case of 2LC and we gain performance by omitting this step and applying the update locally (*2) and then replicating to all owners immediatelly. Each strategy ensures this in a different way:
+What is different is the order of replication. Vanilla Infinispan needs to use single order of updates on all owners and does so (in non-tx mode) by routing the update to primary owner and replicating to the other owners from there. In case of 2LC and we gain performance by omitting this step and applying the update locally (*4) and then replicating to all owners immediatelly. Each strategy ensures this in a different way:
 
 ### Invalidation mode
 
@@ -73,4 +81,8 @@ ClusteredTimestampsRegionImpl does not retrieve timestamps from the cache direct
 
 (1) even at the risk of providing inconsistent image: when ran in transactional mode and a transaction T1 updates two keys A -> 1, B->1 to A -> 2, B -> 2, second transaction T2 may read A -> 2, B -> 1 or vice versa. This breaks the traditional ACID isolation which protects reads with short locks and writes with long locks.
 
-(2) in distributed mode only if the node is an owner
+(2) collections and native ids are stored in the same way
+
+(3) this is a limitation that might be removed in the future by marking the non-evictable items appropriatelly
+
+(4) in distributed mode only if the node is an owner
