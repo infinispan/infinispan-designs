@@ -1,0 +1,28 @@
+== Data Store
+
+In scenarios where Infinispan is used as a persistent data store, the elasticity provided by rebalancing on scaling down (either voluntarily or because of node failure) can lead to data loss, even with persistent caches if all the owners of a segment leave the cluster before rebalancing can be completed. The remaining cluster should prevent writes to the lost segments until the nodes that own them are restarted.
+
+It should be possible to configure Infinispan so that elasticity only applies when scaling up, i.e. adding a node will cause a rebalance.
+
+=== Partition Handling
+
+Partition handling should be configured with `when-split=deny_read_writes` so that the nodes prevent reading/writing to the lost segments.
+
+=== Topology
+
+Rebalancing should have the following configurations:
+
+* ALWAYS: rebalancing happens both on nodes joining and leaving the cluster.
+* SCALE_UP: rebalancing only happens when nodes join.
+* NEVER: rebalancing is disabled in all situations.
+
+Every time a stable topology is installed in the cluster, it should be persisted to the global state. Currently this only happens on shutdown.
+
+=== Restarting nodes
+
+When a node is restarted it should read the topology stored in the global state and join only if it matches the stable topology of the existing cluster.
+
+=== Open issues
+
+When the segment owners are missing, an application will not be able to read/write any data belonging to those segments even if it is "new" data (i.e. keys that were not in those segments when they disappeared).
+We could create temporary segments on the remaining nodes which would then be merged back into the real owners using the conflict resolution logic.
