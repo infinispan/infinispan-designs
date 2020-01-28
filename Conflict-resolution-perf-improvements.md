@@ -29,7 +29,7 @@ The simplest solution for producing such a tree, is to simple have a tree of dep
 and the root is a hash of all leaf hash values. This can be easily implemented by simply iterating over the segment container
 in order to calculate the hash of individual entries and the combined hash.
 
-TRACKED BY: [ISPN-8412] https://issues.redhat.com/browse/ISPN-8412
+TRACKED BY: [ISPN-8412](https://issues.redhat.com/browse/ISPN-8412)
 
 ### Hash to use
 MurmurHash3?
@@ -113,16 +113,16 @@ still limit each node to executing CR for a single segment at a time.
 Distributing CR also benefits from the use of Merkle trees, as it means that the primary owner in the preferred partition
 who is coordinating the CR would not have to send their tree over the wire.
 
-TRACKED BY: [ISPN-9084] https://issues.redhat.com/browse/ISPN-9084
+TRACKED BY: [ISPN-9084](https://issues.redhat.com/browse/ISPN-9084)
 
 ## Prioritise segments based upon requests during merge
 During a partition merge, if CR is in progress and a request is made on a specific key before it's segment has been processed,
 then we should perform CR on the key in place.
 
-The advantage is that conflicts on an active entitiy are resolved sooner, furthemore, if (##<<Maintaining a Merkle tree>>) is
-implemented, it potentially could result in a conflict(s) being resolved before the segment is checked, meaning all entries
+The advantage is that conflicts on an active entitiy are resolved sooner, furthemore, if (Merkle Trees)[Maintaining-a-Merkle-tree>]
+are implemented, it potentially could result in a conflict(s) being resolved before the segment is checked, meaning all entries
 in the segment do not have to be retried.
 
 The disadvantages are the increased complexity, which will only increase if (#Distributed CR processing) is implemented.
 
-TRACKED BY: [ISPN-9079] https://issues.redhat.com/browse/ISPN-9079
+TRACKED BY: [ISPN-9079](https://issues.redhat.com/browse/ISPN-9079)
