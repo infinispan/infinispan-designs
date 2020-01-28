@@ -6,7 +6,7 @@ Currently conflict resolution (CR) performance is dog slow, due to the following
     - Performance degrades rapidly as the size of the cluster increases
 
 2. Centralised CR
-    - On merge the coordinator of the majority partition is responsible for comparing all cache entities
+    - The merge coordinator is responsible for comparing all cache entities
         - In a distributed cache, this requires the coordinator to retrieve all segments from both partitions in order
         to compare them
     - User triggered CR occurs on the node the request is made
@@ -37,14 +37,29 @@ MurmurHash3?
 ### Calculating the entry hash
 Simply hash the `.hashcode()` returned by the `InternalCacheEntry` implementation.
 
-QUESTION: Should we include Metadata in the hash so that versions are taken into account? Are two entries with the same
-key/value but different metadata equal? Currently CR just calls `.equals` on the `CacheEntry` instances and
-`AbstractInternalCacheEntry`'s provided `equals` method only compares the key/values. Is this a bug?
+The `equals` and `hashcode` methods of our `InternalCacheEntry` implementations should be updated to take into account
+the `EntryVersion` stored in the Metadata. Currently this is ignored by CR, however including the check would allow the
+following conflicts to be resolved deterministically via `LATEST_VERSION` resolution strategy:
+
+```java
+put(k, v, 1)  // 1. put k/v with version 1
+put(k, v', 2) // 2.
+put(k, v, 3)  // 3. Missed by partition 1
+```
+By comparing the entry versions during CR, it's possible to ascertain that the original value missed by a partition in
+step 3 is in fact the latest version.
+
+Even if a different merge strategy was used, maintaining an entries `EntryVersion` value is necessary in order for 
+HotRod conditional operations to work as expected for the winning value post CR.
 
 ### Calculating the tree
 The computation of non-leaf nodes should only occur at the start of CR, as the additional iteration of entries would
 adversely affect cache write operation performance. The cost of calculating invidual leaf node hashes should be minimal,
 depending on the hash used, so this could be computed actively or lazily.
+
+Cache operations that occur during the CR phase should be treated as the latest value and should overwrite any writes
+that occurr as part of CR. Therefore, once the tree has being created at the start of CR it's state should be immutable
+until CR is resolved/aborted.
 
 ### Increasing Merkle Tree Depth
 A segment root with all entries being it's children is not very efficient when a segment contains a large number of values,
@@ -58,6 +73,7 @@ This is a simple implemenetation which adds an additional layer of depth to the 
 * A segment is further divided into `X` nodes, which are the root's childen
   - These nodes represent a range of a cache's `key` hashcodes, e.g. 0..5, 6..10 etc
   - `(hash(key) & Integer.MAX_VALUE) \ X`
+  - MurmurHash3 can also be used here
   - Where `X` could be configurable, but should probably just be an internal constant
 
 * Each node contains:
@@ -86,7 +102,7 @@ user initiates a backup:
 4. When a cluster is restored from a backup, the clusterwide Merkle tree can be recreated and the new root hash can be
 compared to the value stored in the metadata.
 
-NOTE: Utilising Merkle trees in this manner would mean that it's not possible to make changes to how entries are hashed
+> Utilising Merkle trees in this manner would mean that it's not possible to make changes to how entries are hashed
 and how the tree is created without an appropriate migration strategy between Infinispan versions.
 
 ## Distributed CR processing
@@ -103,7 +119,7 @@ TRACKED BY: [ISPN-9084] https://issues.redhat.com/browse/ISPN-9084
 During a partition merge, if CR is in progress and a request is made on a specific key before it's segment has been processed,
 then we should perform CR on the key in place.
 
-The advantage is that conflicts on an active entitiy are resolved sooner, furthemore, if (## Maintain a segment hash) is
+The advantage is that conflicts on an active entitiy are resolved sooner, furthemore, if (##<<Maintaining a Merkle tree>>) is
 implemented, it potentially could result in a conflict(s) being resolved before the segment is checked, meaning all entries
 in the segment do not have to be retried.
 
