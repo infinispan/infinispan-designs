@@ -54,7 +54,8 @@ HotRod conditional operations to work as expected for the winning value post CR.
 
 ### Calculating the tree
 The computation of non-leaf nodes should only occur at the start of CR, as the additional iteration of entries would
-adversely affect cache write operation performance. The cost of calculating invidual leaf node hashes should be minimal,
+adversely affect cache write operation performance. Furthermore, it's necessary to ensure that both the in-memory and
+store entries are included in the creation of the tree. The cost of calculating invidual leaf node hashes should be minimal,
 depending on the hash used, so this could be computed actively or lazily.
 
 Cache operations that occur during the CR phase should be treated as the latest value and should overwrite any writes
@@ -63,12 +64,12 @@ until CR is resolved/aborted.
 
 ### Increasing Merkle Tree Depth
 A segment root with all entries being it's children is not very efficient when a segment contains a large number of values,
-as when an inconsistency is discover, it's still necessary to send all entries within the segment over the wire. Increasing
+as when an inconsistency is discovered, it's still necessary to send all entries within the segment over the wire. Increasing
 the depth of the tree means that it's possible to perform more fine-grained consistency checks, with a larger tree depth
 and smaller amount of leaf nodes resulting in less entries having to be sent over the wire when inconsistencies do occur.
 
 #### Constant lookup/removal tree - Depth 3
-This is a simple implemenetation which adds an additional layer of depth to the tree in order to increase CR granularity:
+This is a simple implementation which adds an additional layer of depth to the tree in order to increase CR granularity:
 
 * A segment is further divided into `X` nodes, which are the root's childen
   - These nodes represent a range of a cache's `key` hashcodes, e.g. 0..5, 6..10 etc
@@ -85,12 +86,6 @@ This is a simple implemenetation which adds an additional layer of depth to the 
 * During CR if two tree's root values don't match, it's then possible to compare all `X` hashes and only request the indexes
 of the array which have conflicting hashes. At which point the participating nodes only return the InternalCacheEntries
 associated with those nodes.
-
-* Once the hash tree has been created for CR, it's possible to cache the hashes until a subsequent write operation. Upon
-a write operation it's necessary to invalidate the root hash and the hash of the child node containing the entry. During
-the next round of CR it's then only necessary to recalculate the invalidated nodes and the root.
-
-* Logic for processing write operations can be implemented as an interceptor which interacts with the conflict manager.
 
 ### Offline Backup Consistency Check
 The Merkle tree hashes can also be utilised to ensure the consistency of data being dumped to an offline backup. When a
