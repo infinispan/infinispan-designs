@@ -3,68 +3,95 @@
 The goal is to be able to add nodes to the cluster and make them own new entries,
 without also owning any of the old entries.
 
-To simplify things, we always have a single owner, we don't care about scaling down,
-and we assume that only one node is being added at a time.
+Simplifying assumptions:
 
-We can use a custom `KeyPartitioner` + `ConsistentHashFactory` combo to
-keep track of all inserted keys in a replicated "index cache",
-and to direct all writes to the node added last.
+* Only one node is being added at a time.
+* Single owner
+* No transactions
+* When scaling down data is just lost
 
-== Custom `ConsistenchHashFactory`
+The basic idea is that all keys are written on the newest member.
+The location of all inserted keys is kept in a replicated cache
+(the **anchor cache**) and used for further reads/updates/removals.
 
-`SingleWriterConsistentHashFactory` is a custom `ConsistentHashFactory`
-that starts with all segments owned by node 0,
-and every time a new node `K` is added, segment `K` is assigned to it.
-
-Let's call `K` the current write segment/node.
-
-When a node `L` (`L < K`) is stopped/crashes, the ownership of segment `L`
-is automatically changed to node `K`.
-
-=== Risks and possible mitigations
-The possibility of restarts means the number of assigned segments could grow very high.
-The number of segments can't change at runtime, so we'd have to set
-a high `numSegments` in the configuration and send a huge
-`DefaultConsistentHash` on every topology update.
-There are 2 workarounds for this:
-
-* Keep track of the holes caused by stopped/crashed nodes,
-and we could keep segment `L` unassigned until a new node starts up
-(or the old `L` node restarts).
-* Have an always-on member `X` that signals a segment has no owner,
-and use a custom `ConsistentHash` implementation
-that only keeps track of "proper" owners.
+It's important to note that clients don't have access to the anchor cache,
+so clients access servers in a round-robin fashion.
 
 
-== Custom `KeyPartitioner`
+== Implementation
 
-`StatefulKeyPartitioner` is a custom `KeyPartitioner` is responsible for maintaining
-the index cache, which is a replicated cache mapping each key to a segment.
+The implementation will live in a module named `anchored-keys`.
 
-On every operation, `IndexKeyPartitioner` will look up the key in the index.
-If the keys already exists, it will use the existing segment,
-otherwise it will create a new mapping to the current write node `K`.
+Since we can't deterministically map keys to segments, we don't need a distributed cache.
+Instead we can use an invalidation cache and the `ModuleLifecycle` implementation
+can replace the invalidation interceptor with a custom interceptor.
 
-=== Risks and possible mitigations
+The interceptor will first look up affected keys in the anchor cache.
+If the key doesn't exist in the anchor cache, reads can assume the value is missing.
+Writes must insert the current writer's location in the anchor cache,
+then forward to the current writer for the actual write.
 
-There is a risk that the application will try to read many non-existing keys,
-making the index cache bigger than the data cachitself.
-If that is the case, we need to create a custom interceptor that
-adds the key-segment mapping only for write commands.
+When a key is removed, the interceptor must also remove the key from the anchor cache.
+When a node leaves, the interceptor must remove all the keys mapped to that node
+from the anchor cache.
 
-There is a similar risk after node restarts:
-entries will disappear from the data cache, but key-segment mappings
-will survive in the index cache.
-In order to keep the cluster working, we'll need to actively delete
-clean up the index cache after a node leaves.
+== Configuration
+
+Configuration means a custom element `anchored-keys`
+with a single attribute `enabled`.
+
+```
+<invalidation-cache name="name">
+    <anchored-keys enabled="true"/>
+</invalidation-cache>
+```
 
 == Performance considerations
 
-The client can't connect directly to the primary owner,
-because the client doesn't have access to the replicated cache.
-We are also missing support for custom `KeyPartitioner` implementations.
+=== Latency / RPCs
 
-That means the only option is to use a round-robin access strategy,
-and the accessed server then uses the
-`IndexKeyPartitioner + SingleWriterConsistentHashFactory` combo
-to direct the read or write to the proper owner.
+The client doesn't know the owner, so any read or write has a
+`(N-1)/N` probability of requiring a unicast RPC from the processing server to the owner.
+
+In addition to this, the first write to a key also requires a replicated cache write,
+which means a multicast RPC plus a `(N-1)/N` probability of another unicast RPC.
+
+If `FailoverRequestBalancingStrategy` knew whether the next request
+was a read or a write, we could make it always send write requests
+to the last server.
+However, that would only work if updates and removals are minimal,
+otherwise the last server could be overloaded.
+
+=== Memory overhead
+
+The anchor cache contains copies of all the keys and their locations,
+plus the overhead of the cache itself.
+
+The overhead is lowest for off-heap storage:
+21 bytes in the entry itself plus 8 bytes in the table,
+assuming no eviction or expiration.
+The location is another 20 bytes, assuming we keep the serialized owner's address.
+
+Note: We could reduce the location size to <= 8 bytes
+by encoding the location as an integer.
+
+Addresses are interned, so an address already uses only 4 bytes
+with OBJECT storage and `-XX:+UseCompressedOops`.
+But the overhead of the ConcurrentHashMap-based on-heap cache is much bigger,
+at least 32 bytes from CHM.Node, 24 bytes from ImmortalCacheEntry,
+and 4 bytes in the table.
+
+Note: because replicated writes are sent to the primary owner,
+which forwards them to all the other members, the keys cannot be de-duplicated.
+
+
+=== State transfer
+
+There will be no state transfer for the main cache, but the anchor cache still needs
+to transfer all the keys and the location information.
+
+Assuming that the values are much bigger compared to the keys and to the cache overhead per entry,
+the anchor cache's state transfer should also be much faster compared to the state transfer for the main cache.
+
+The initial state transfer should not block a joiner from starting,
+because the joiner can ask an existing node for the location.
