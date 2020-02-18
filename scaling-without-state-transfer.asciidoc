@@ -1,0 +1,70 @@
+= Scaling up without state transfer
+
+The goal is to be able to add nodes to the cluster and make them own new entries,
+without also owning any of the old entries.
+
+To simplify things, we always have a single owner, we don't care about scaling down,
+and we assume that only one node is being added at a time.
+
+We can use a custom `KeyPartitioner` + `ConsistentHashFactory` combo to
+keep track of all inserted keys in a replicated "index cache",
+and to direct all writes to the node added last.
+
+== Custom `ConsistenchHashFactory`
+
+`SingleWriterConsistentHashFactory` is a custom `ConsistentHashFactory`
+that starts with all segments owned by node 0,
+and every time a new node `K` is added, segment `K` is assigned to it.
+
+Let's call `K` the current write segment/node.
+
+When a node `L` (`L < K`) is stopped/crashes, the ownership of segment `L`
+is automatically changed to node `K`.
+
+=== Risks and possible mitigations
+The possibility of restarts means the number of assigned segments could grow very high.
+The number of segments can't change at runtime, so we'd have to set
+a high `numSegments` in the configuration and send a huge
+`DefaultConsistentHash` on every topology update.
+There are 2 workarounds for this:
+
+* Keep track of the holes caused by stopped/crashed nodes,
+and we could keep segment `L` unassigned until a new node starts up
+(or the old `L` node restarts).
+* Have an always-on member `X` that signals a segment has no owner,
+and use a custom `ConsistentHash` implementation
+that only keeps track of "proper" owners.
+
+
+== Custom `KeyPartitioner`
+
+`StatefulKeyPartitioner` is a custom `KeyPartitioner` is responsible for maintaining
+the index cache, which is a replicated cache mapping each key to a segment.
+
+On every operation, `IndexKeyPartitioner` will look up the key in the index.
+If the keys already exists, it will use the existing segment,
+otherwise it will create a new mapping to the current write node `K`.
+
+=== Risks and possible mitigations
+
+There is a risk that the application will try to read many non-existing keys,
+making the index cache bigger than the data cachitself.
+If that is the case, we need to create a custom interceptor that
+adds the key-segment mapping only for write commands.
+
+There is a similar risk after node restarts:
+entries will disappear from the data cache, but key-segment mappings
+will survive in the index cache.
+In order to keep the cluster working, we'll need to actively delete
+clean up the index cache after a node leaves.
+
+== Performance considerations
+
+The client can't connect directly to the primary owner,
+because the client doesn't have access to the replicated cache.
+We are also missing support for custom `KeyPartitioner` implementations.
+
+That means the only option is to use a round-robin access strategy,
+and the accessed server then uses the
+`IndexKeyPartitioner + SingleWriterConsistentHashFactory` combo
+to direct the read or write to the proper owner.
