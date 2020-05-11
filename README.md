@@ -42,6 +42,7 @@ This repository contains various design proposals related to Infinispan
 * [Off-Heap Implementation](Off-Heap-Implementation.md)
 * [Optimistic Locking In Infinispan](Optimistic-Locking-In-Infinispan.asciidoc)
 * [RAC: Reliable Asynchronous Clustering](RAC%3A-Reliable-Asynchronous-Clustering.asciidoc)
+* [RAC: Implementation Details](RAC-implementation.md)
 * [Remote Admin Client Library](Remote-Admin-Client-Library.md)
 * [Remote Command Handler](Remote-Command-Handler.md)
 * [Remote Hot Rod Events](Remote-Hot-Rod-Events.asciidoc)
