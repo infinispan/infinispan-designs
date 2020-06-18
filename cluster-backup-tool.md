@@ -46,41 +46,48 @@ Content-Transfer-Encoding: binary
 ```
 
 # Archive Format
-A cluster backup consists of a single global manifest which contains clusterwide metadata. As well as `.xml` and `.dat`
-files for each cache and a single `counters.dat` file. These files are then distributed as a archive format, which can
-be passed to the CLI in order to initiate a import.
+A cluster backup consists of a global manifest which contains clusterwide metadata, such as the version. As well as a
+directory structure that contains all cache templates, cache instances and counters. These files are then distributed
+as a archive format, which can be passed to the CLI in order to initiate a import.
 
 ```
+cache-configs/
+cache-configs/some-template.xml
+cache-configs/another-template.xml
 caches/
 caches/example-user-cache.dat
 caches/example-user-cache.xml
 counters/
 counters/counters.dat
 manifest.properties
-infinispn.xml
+cache-container.xml
 ```
 
 The above files will be packaged as a single `.zip` distribution to aid backup/import; this provides compression as well
 as being compatible with both Linux and Windows.
 
-## Global Manifest
+## Manifest
 Basic java properties file with key/values.
 
 ```java
 version=11.0.0.Final
-globalconfiguration=infinispan.xml
+cache-configs="some-template, another-template"
 caches="org.infinispan.CONFIG", "example-user-cache"
 counters="example-counter"
 ```
 
 The Infinispan version can be used by the Server to quickly determine if a migration to the new server version is possible
-based upon the number of major versions we support migrations across. Similarly, the Global configuration can be used to
-determine if the backup depends on any additional user classes, e.g. serialization marshallers, and can check that the
-server contains these resources on it's classpath, failing fast if they are not present.
+based upon the number of major versions we support migrations across.
 
+## Container XML
+The container XML can be used to determine if the backup depends on any additional user classes, e.g. serialization marshallers,
+and can check that the server contains these resources on it's classpath, failing fast if they are not present.
+
+## Template files
+Each defined template is represented by a `<template-name>.xml` file.
 
 ## Cache Files
-A cache backup consists of a `.xml` and `.dat` file, each of which is named after the cache. The `.xml` file contains
+A cache backup consists of a `<cache-name>.xml` and a `<cache-name>.dat` file. The `.xml` file contains
 the cache configuration and is used to create the initial empty cache. The `.dat` file is a batch file containing the cache
 content and is read by the server in order to restore entries to the cache. Each line in the file corresponds to a cache
 entry, with keys and values separated by a single space.
