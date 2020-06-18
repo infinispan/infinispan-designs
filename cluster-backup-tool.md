@@ -47,46 +47,63 @@ Content-Transfer-Encoding: binary
 
 # Archive Format
 A cluster backup consists of a global manifest which contains clusterwide metadata, such as the version. As well as a
-directory structure that contains all cache templates, cache instances and counters. These files are then distributed
-as a archive format, which can be passed to the CLI in order to initiate a import.
+directory structure that contains all backed up cache-containers. Each cache-container then contains it's configured
+cache templates, cache instances and counters. This directory structure is then distributed
+as a archive format, which can be passed to the server in order to initiate a import.
 
 ```
-cache-configs/
-cache-configs/some-template.xml
-cache-configs/another-template.xml
-caches/
-caches/example-user-cache.dat
-caches/example-user-cache.xml
-counters/
-counters/counters.dat
+containers/
+containers/<name>
+containers/<name>/cache-container.xml
+containers/<name>/container.properties
+containers/<name>/cache-configs/
+containers/<name>/cache-configs/some-template.xml
+containers/<name>/cache-configs/another-template.xml
+containers/<name>/caches/
+containers/<name>/caches/example-user-cache.dat
+containers/<name>/caches/example-user-cache.xml
+containers/<name>/counters/
+containers/<name>/counters/counters.dat
+
 manifest.properties
-cache-container.xml
 ```
 
 The above files will be packaged as a single `.zip` distribution to aid backup/import; this provides compression as well
 as being compatible with both Linux and Windows.
 
-## Manifest
-Basic java properties file with key/values.
+> Utilising the above directory structure simplifies future features such as per container or per cache imports.
+
+## Manifest Properties
+Basic java properties file with key/values which contains cluster wide information.
 
 ```java
 version=11.0.0.Final
-cache-configs="some-template, another-template"
-caches="org.infinispan.CONFIG", "example-user-cache"
-counters="example-counter"
+cache-containers="default"
 ```
 
 The Infinispan version can be used by the Server to quickly determine if a migration to the new server version is possible
 based upon the number of major versions we support migrations across.
 
-## Container XML
+## Container Files
+Each container is identified in the directory structure by it's name attribute and contains several sub directories.
+
+### Container Properties
+`container.properties` file that lists all of the configured templates, caches and counters.
+
+```java
+cache-configs="some-template, another-template"
+caches="org.infinispan.CONFIG", "example-user-cache"
+counters="example-counter"
+```
+
+### Container XML
 The container XML can be used to determine if the backup depends on any additional user classes, e.g. serialization marshallers,
 and can check that the server contains these resources on it's classpath, failing fast if they are not present.
 
-## Template files
+### Template files
 Each defined template is represented by a `<template-name>.xml` file.
 
-## Cache Files
+### Cache Files
 A cache backup consists of a `<cache-name>.xml` and a `<cache-name>.dat` file. The `.xml` file contains
 the cache configuration and is used to create the initial empty cache. The `.dat` file is a batch file containing the cache
 content and is read by the server in order to restore entries to the cache. Each line in the file corresponds to a cache
@@ -102,7 +119,7 @@ hola mundo
 
 > How to represent metadata and handle expiration?
 
-### Storage MediaTypes
+#### Storage MediaTypes
 If a cache has a configured key and/or value MediaType, that can be readily represented as a string, e.g. text/plain or json,
 then the key/value should be represented in the `.dat` file using that format. Otherwise a binary MediaType, such
 as `application/x-protostream`, are represented as a Base64 String.
@@ -112,13 +129,13 @@ Example  `.dat` content:
 hello V29ybGQ=
 ```
 
-### Internal Caches
+#### Internal Caches
 Volatile internal caches should not be included in a backup. Internal caches can be excluded during the creation of the
 backup archive, with no `.xml` or `.dat` files created.
 
 The counter cache should also be omitted in favour of a dedicated `counters.dat` file.
 
-## Counters File
+### Counters File
 The `counters.dat` file that contains the informated required in order to recreate all counters and their values
 at backup time. If no counters exist, this file can be omitted from the archive.
 
