@@ -105,29 +105,29 @@ Each defined template is represented by a `<template-name>.xml` file.
 
 ### Cache Files
 A cache backup consists of a `<cache-name>.xml` and a `<cache-name>.dat` file. The `.xml` file contains
-the cache configuration and is used to create the initial empty cache. The `.dat` file is a batch file containing the cache
-content and is read by the server in order to restore entries to the cache. Each line in the file corresponds to a cache
-entry, with keys and values separated by a single space.
+the cache configuration and is used to create the initial empty cache. The `.dat` file contains the cache
+content and is read by the server in order to restore entries to the cache.
+
+Entries in the `.dat` file are stored as a stream of Protobuf messages:
+
+```protobuf
+message CacheBackupEntry {
+    bytes key = 1;
+    bytes value = 2;
+    bytes metadata = 3;
+    PrivateMetadata internalMetadata = 4;
+    int64 created = 5;
+    int64 lastUsed = 6;
+}
+```
+We store Metadata implementations as generic bytes to account for custom implementations.
 
 > If the cache is empty during the backup, then no `.dat` file is created.
 
-Example  `.dat` content:
-```java
-hello world
-hola mundo
-```
-
-> How to represent metadata and handle expiration?
-
 #### Storage MediaTypes
-If a cache has a configured key and/or value MediaType, that can be readily represented as a string, e.g. text/plain or json,
-then the key/value should be represented in the `.dat` file using that format. Otherwise a binary MediaType, such
-as `application/x-protostream`, are represented as a Base64 String.
-
-Example  `.dat` content:
-```java
-hello V29ybGQ=
-```
+Currently all supported MediaTypes are stored as `byte[]`, with the exception of `application/x-java-object`, so it's
+possible to store them as is. If a cache has a key and/or value with `application/x-java-object`, it's necessary to
+first convert the objec to a byte[] via the `PersistenceMarshaller`.
 
 #### Internal Caches
 Volatile internal caches should not be included in a backup. Internal caches can be excluded during the creation of the
@@ -139,9 +139,12 @@ The counter cache should also be omitted in favour of a dedicated `counters.dat`
 The `counters.dat` file that contains the informated required in order to recreate all counters and their values
 at backup time. If no counters exist, this file can be omitted from the archive.
 
-```
-<NAME> <STORAGE> <TYPE> <INITIAL_VALUE> <CURRENT_VALUE>
-example-cache PERSISTENT STRONG 0 5
+```protobuf
+message CounterBackupEntry {
+    string name = 1;
+    CounterConfiguration configuration = 2;
+    int64 currentValue = 3;
+}
 ```
 
 # CLI Integration
