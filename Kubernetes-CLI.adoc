@@ -17,16 +17,18 @@ Using the Fabric8 Kubernetes Client we can automatically detect the existence of
 
 === Kubernetes commands
 
+The Infinispan Kubernetes CLI plugin defaults to using the `datagrid` namespace and the `infinispan` service name. These can be overridden in each command using the `--namespace` parameter and the name argument.
+
 ==== Install the operator
 
-`kubectl infinispan install -n namespace`
+`kubectl infinispan install [-n namespace]`
 
 Install the Infinispan Operator in the specified namespace. 
 This should also install the relevant OLM subscription and operator group so that the operator can be updated.
 
 ==== Create an Infinispan service
 
-`kubectl infinispan create service -n namespace -r replicas servicename`
+`kubectl infinispan create service [-n namespace] [-r replicas] [--expose-type=type] [--expose-port=port] [--expose-host=hostname] [servicename]`
 
 Creates an Infinispan service:
 * `-n namespace` selects the namespace. Defaults to `infinispan-operator`.
@@ -34,6 +36,12 @@ Creates an Infinispan service:
 * `--expose-type LoadBalancer|NodePort|Route` selects how the service should be exposed.
 * `--expose-port port` specifies the exposed port for LoadBalancer and NodePort types.
 * `--expose-host hostname` specifies the exposed hostname for the Route type.
+
+==== Scale an Infinispan service
+
+`kubectl infinispan scale -r replicas [servicename]`
+
+Scale an Infinispan service to the specified number of replicas
 
 ===== Interact with a running Infinispan service
 
@@ -43,13 +51,13 @@ Connects to one of the active pods of the service and launches the CLI in intera
 
 ==== Remove an Infinispan service
 
-`kubectl infinispan remove service -n namespace servicename`
+`kubectl infinispan delete service [-n namespace] [servicename]`
 
 Stops and removes an Infinispan service.
 
 ==== Uninstalling the operator
 
-`kubectl infinispan uninstall -n namespace`
+`kubectl infinispan uninstall [-n namespace]`
 
 Removes the Infinispan operator
 
