@@ -17,7 +17,7 @@ Using the Fabric8 Kubernetes Client we can automatically detect the existence of
 
 === Kubernetes commands
 
-The Infinispan Kubernetes CLI plugin defaults to using the `datagrid` namespace and the `infinispan` service name. These can be overridden in each command using the `--namespace` parameter and the name argument.
+The Infinispan Kubernetes CLI plugin uses the default namespace for all operations, unless overridden with the `--namespace` parameter.
 
 ==== Install the operator
 
@@ -26,32 +26,35 @@ The Infinispan Kubernetes CLI plugin defaults to using the `datagrid` namespace 
 Install the Infinispan Operator in the specified namespace. 
 This should also install the relevant OLM subscription and operator group so that the operator can be updated.
 
-==== Create an Infinispan service
+==== Create an Infinispan cluster
 
-`kubectl infinispan create service [-n namespace] [-r replicas] [--expose-type=type] [--expose-port=port] [--expose-host=hostname] [servicename]`
+`kubectl infinispan create cluster [-n namespace] [-r replicas] [--expose-type=type] [--expose-port=port] [--expose-host=hostname] [name]`
 
-Creates an Infinispan service:
-* `-n namespace` selects the namespace. Defaults to `infinispan-operator`.
+Creates an Infinispan cluster:
+* `-n namespace` overrides the namespace.
 * `-r replicas` selects the initial number of replicas. Defaults to 1.
-* `--expose-type LoadBalancer|NodePort|Route` selects how the service should be exposed.
-* `--expose-port port` specifies the exposed port for LoadBalancer and NodePort types.
-* `--expose-host hostname` specifies the exposed hostname for the Route type.
+* `--expose-type=LoadBalancer|NodePort|Route` selects how the service should be exposed.
+* `--expose-port=port` specifies the exposed port for LoadBalancer and NodePort types.
+* `--expose-host=hostname` specifies the exposed hostname for the Route type.
+* `--security-secret=secretname` specifies the secret to use for endpoint authentication.
+* `--security-cert-secret=secretname` the secret that contains a service certificate, tls.crt, and key, tls.key, in PEM format. 
+* `--security-cert-service=servicename` the Red Hat OpenShift certificate service name.
 
 ==== Scale an Infinispan service
 
 `kubectl infinispan scale -r replicas [servicename]`
 
-Scale an Infinispan service to the specified number of replicas
+Scale an Infinispan cluster to the specified number of replicas
 
 ===== Interact with a running Infinispan service
 
-`kubectl shell servicename`
+`kubectl infinispan shell [name]`
 
-Connects to one of the active pods of the service and launches the CLI in interactive mode.
+Connects to one of the active pods of the specified cluster and launches the CLI in interactive mode.
 
 ==== Remove an Infinispan service
 
-`kubectl infinispan delete service [-n namespace] [servicename]`
+`kubectl infinispan delete cluster [-n namespace] [servicename]`
 
 Stops and removes an Infinispan service.
 
