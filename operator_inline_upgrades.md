@@ -2,7 +2,7 @@
 Optionally allow a Infinispan CR cluster to be upgraded with zero downtime, no loss of data and minimal extra resources usage.
 
 ## Spec
-Add an new value `inline` the the `spec.upgrades` field.
+Add an new value `inline` to the `spec.upgrades` field.
 
 ```yaml
 apiVersion: infinispan.org/v1
