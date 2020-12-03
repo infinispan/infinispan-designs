@@ -14,7 +14,7 @@ spec:
 ```
 
 ## Procedure
-This is a specialization for then Infinispan Operator of the general JGroups procedure described in [JGroups RollingUpgrades docs](https://github.com/jgroups-extras/RollingUpgrades/)
+This is a specialization for then Infinispan Operator of the general JGroups procedure described in [JGroups RollingUpgrades docs](https://github.com/jgroups-extras/RollingUpgrades/)  
 When an upgrade is required the operator performs the following procedure:
 1. Enable the JGroups UPGRADE protocol on the existing cluster
 2. Deploy an UpgradeServer
