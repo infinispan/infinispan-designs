@@ -1,0 +1,71 @@
+= Authorization
+
+== Premise
+This document outlines a proposal for improving authorization in Infinispan.
+Currently, Infinispan authorization is disabled by default in both embedded and server.
+Authorization has two main scopes: global and per-cache. 
+Since per-cache operations authorization has a significant impact on performance, it needs to be explicitly enabled.
+
+== Current limitations
+* Configuration of authorization is complex and there is no OOTB configuration
+* The internal roles for schema and script management are not friendly
+* The small number of permissions means that the scope of the ADMIN permission is quite broad
+
+== Proposal
+The following changes are proposed:
+* Introduce a new CREATE permission
+* Include a default set of roles when the user doesn't provide any
+* Enable authorization out-of-the box in the server
+* (Optional) Introduce a way to "scope" permissions to resource names
+
+=== CREATE permission
+Add a CREATE permission to `org.infinispan.security.AuthorizationPermission`.
+CREATE allows creation/removal of caches, counters, schemas, scripts.
+CREATE supersedes and deprecates the existing `___schema_manager` and `___script_manager` internal roles.
+
+=== Default roles
+Enabling authorization without supplying any roles would define the following default roles:
+
+* *admin* superuser, allowed to do everything (*ALL*)
+* *application* allowed to perform all read/write ops, but not allowed to create/remove caches, schemas, scripts (*ALL_READ*, *ALL_WRITE*, *LISTEN*, *EXEC*)
+* *builder* allowed to create/remove caches, schemas, scripts (*ALL_READ*, *ALL_WRITE*, *LISTEN*, *EXEC*, *CREATE*)
+* *observer* a read-only role. Can use the CLI/console but all write ops are forbidden (*ALL_READ*)
+
+=== Server authorization 
+
+* The default server configurations should enable authorization OOTB for server/container ops.
+* The default role mapper should be the `cluster-role-mapper` which stores principal-to-role mappings in a replicated persistent cache across the cluster
+
+=== Cluster Role Mapper
+
+* if empty, it behaves like the `identity-role-mapper` so that default behaviour doesn't change, i.e. the identity's principals are mapped 1:1 with roles. 
+This means an "admin" user will act with the "admin" role.
+* CLI `grant` and `deny` commands control the association between principals and roles, e.g. `grant myuser builder`
+
+
+=== Role Scoping (Optional)
+
+Because some permissions (ADMIN) are quite broad, it may make sense to introduce role scoping. 
+This would allow granting access to one or more roles to specific resources while preserving the usual semantics everywhere else.
+For example, to allow users having the `backup` role perrmissions to invoke privileged backup ops:
+
+[source,xml]
+----
+<role name="backup">
+  <scopes>
+    <scope name="/v2/cache-managers/*/backups/*" permissions="ADMIN"/>
+  </scopes>
+</role>
+----
+
+This implies that a role with no scopes would be equivalent to the wildcard scope:
+
+[source,xml]
+----
+<role name="backup">
+  <scopes>
+    <scope name="*" permissions="ADMIN"/>
+  </scopes>
+</role>
+----
+
