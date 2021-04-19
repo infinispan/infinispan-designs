@@ -1,0 +1,264 @@
+= SQL Store
+
+As a application developer or data grid administrator, I want to preload a cache from a relational database accessed by JDBC - via configuration without writing boilerplate code.
+
+== Architecture
+
+* the store can be either read/write or read-only (in which case it behaves as a loader)
+* the store can work in either single-table mode or in query-mode (via user supplied queries)
+* the store can work with simple keys/values or with complex types defined as protobuf schemas
+* a protobuf schema can either be generated dynamically from the resultset metadata or supplied by the user
+* the key can either be a single column or composite
+* the store is to be implemented as part of the existing JDBC store module so that it can reuse the general configuration of connection pooling/datasources and the dialect helpers
+
+== Modes
+
+=== Table mode
+
+This mode is the simplest, in that it just requires the user to supply a single table name.
+Through the database metadata, the store will determine:
+
+* the column names and types
+* which columns are part of the primary key
+
+The proposed XML configuration for this mode:
+
+[source,xml]
+----
+<local-cache name="books">
+   <persistence>
+      <table-jdbc-store>
+         <data-source jndi-url="..." />
+         <!-- the table element is required -->
+         <table name="books"/>
+         <!-- the schema element is optional. Defaults will be used otherwise -->
+         <schema message-name="Book" key-message-name="BookID" package="library" embedded-key="true"/>
+      </table-jdbc-store>
+   </persistence>
+</local-cache>
+----
+
+Optionally, the key can be embedded in the value.
+
+=== Query mode
+
+In this mode, the user supplies the SQL queries to retrieve the entries and (optionally) to insert/update/delete them.
+
+[cols="1,2,1"]
+|===
+| *Query*
+| *Description*
+| *Example*
+
+| *SELECT ALL*
+| The query to use when bulk-loading data into the cache. Columns *MUST* be explicitly listed (wildcards are *NOT* allowed). Expressions are allowed but they *MUST* be labelled.
+| `select isbn, title from books`
+
+| *SELECT SINGLE*
+| The query to use when loading a single entry into the cache. Columns *MUST* be explicitly listed (wildcards are *NOT* allowed). Expressions are allowed but they *MUST* be labelled.
+| `select isbn, title from books where isin = :key`
+
+| *UPSERT* 
+| The query to use when inserting/updating entrys into the database.
+| `insert into books (isbn, title) values() ON DUPLICATE KEY UPDATE`
+
+| *DELETE*
+| The query to use when a single entry is deleted.
+| `delete from books where id = :key`
+
+| *DELETE ALL*
+| The query to use when the cache is cleared.
+| `delete from books/truncate table books`
+
+| *SIZE*
+| The query to use to count the number of entries
+| `select count(*) from books`
+
+|===
+
+The proposed XML configuration for this mode:
+
+[source,xml]
+----
+<local-cache name="books">
+   <persistence>
+      <query-jdbc-store>
+         <data-source jndi-url="..." />
+         <!-- the queries element is required, including the names of all the columns which make up the key -->
+         <queries key-columns="isbn">
+            <select-all>SELECT isbn, title FROM books</select-all>
+            <select-single>SELECT isbn, title FROM books WHERE isbn = :key</select-single>
+            <delete-all>DELETE FROM books</delete-all>
+            <delete>DELETE FROM books WHERE isbn = :key</delete>
+            <upsert>INSERT INTO books (isbn, title) VALUES (:key, :value) ON CONFLICT (isbn) DO UPDATE SET title = :value</upsert>
+            <size>SELECT COUNT(*) FROM books</size>
+         </queries>
+         <!-- the schema element is optional. Defaults will be used otherwise -->
+         <schema message-name="Books" key-message-name="BooksID" file-name="books.proto" package="library"/>
+      </query-jdbc-store>
+   </persistence>
+</local-cache>
+----
+
+==== Query parameters
+
+Query parameters are named using the following conventions:
+
+* simple keys or values use the `:key` or `:value` names
+* composite keys or values use the `:key` or `:value` names followed by a `.` and the name of the field, e.g. `:value.description`
+
+== Storage
+
+=== ProtoBuf schema
+
+==== User-supplied schema
+
+It should be possible for the user to specify her own message type name, which should be present in the schema registry. 
+The names of the fields in the schema **MUST** match the column names of the table.
+
+==== Generated schema
+
+===== Naming
+
+The following naming conventions are used:
+
+* schema file: `*cache-name*-sql-store.proto`
+* package name: `sql-store`
+* key message type name: `*cache-name*_key`
+* value message type name: `*cache-name*_value`
+
+=== Type mapping
+
+==== Simple
+
+Simple type mapping is used when the table/query only returns two columns. The following conventions are used:
+
+* A string will be used for column types which can be represented as such (char, varchar, text, numbers, boolean)
+* a byte array will be used for binary types (blob, bytea)
+
+
+==== ProtoBuf
+
+The following table shows the default mappings between common SQL types and their ProtoBuf equivalents:
+
+[cols="1,1"]
+|===
+| *SQL*
+| *ProtoBuf*
+
+| `int4`
+| `int32`
+
+| `int8`
+| `int64`
+
+| `float4`
+| `float`
+
+| `float8`
+| `double`
+
+| `numeric`
+| `double`
+
+| `bool`
+| `bool`
+
+| `char`
+| `string`
+
+| `varchar`
+| `string`
+
+| `text`,`tinytext`,`mediumtext`,`longtext`
+| `string`
+
+| `bytea`,`tinyblob`,`blob`,`mediumblob`,`longblob`
+| `bytes`
+
+|===
+
+== Examples
+
+=== Two columns: Simple key and value
+
+[source,sql]
+----
+CREATE TABLE books (
+    isbn NUMBER(13),
+    title varchar(120)
+    PRIMARY KEY(isbn)
+);
+----
+
+the default behaviour will cause the `isbn` column to be used as key and the `title` column to be used as value, both as strings. No ProtoBuf schemas will be generated. The following queries will be used (PostgreSQL):
+
+* SELECT: `SELECT isbn, title FROM books WHERE isbn = :key`
+* SELECT-ALL: `SELECT isbn, title FROM books`
+* DELETE: `DELETE FROM books WHERE isbn = :key`
+* DELETE-ALL: `TRUNCATE books`
+* UPSERT: `INSERT INTO books (isbn, title) VALUES (:key, :value) ON CONFLICT (isbn) DO UPDATE SET title = :value`
+
+=== Simple key and composite value
+
+[source,sql]
+----
+CREATE TABLE books (
+    isbn NUMBER(13),
+    title varchar(120),
+    author varchar(80)
+    PRIMARY KEY(isbn)
+);
+----
+
+the default behaviour will cause the `isbn` column to be used as key as a string. 
+A `books-sql-store.proto` schema will be generated:
+
+[source,protobuf]
+----
+package library;
+
+message books_value {
+    optional string title = 1;
+    optional string author = 2;
+}
+----
+
+The following queries will be used (PostgreSQL):
+
+* SELECT: `SELECT isbn, title, author FROM books WHERE isbn = :key`
+* SELECT-ALL: `SELECT isbn, title, author FROM books`
+* DELETE: `DELETE FROM books WHERE isbn = :key`
+* DELETE-ALL: `TRUNCATE books`
+* UPSERT: `INSERT INTO books (isbn, title, author) VALUES (:key, :value.title, :value.author) ON CONFLICT (isbn) DO UPDATE SET title = :value.title, author = :value.author`
+* SIZE: `SELECT COUNT(*) FROM books`
+
+=== Composite key
+
+[source,sql]
+----
+CREATE TABLE books (
+    isbn NUMBER(13),
+    reprint INT,
+    title varchar(120),
+    author varchar(80)
+    PRIMARY KEY(isbn, reprint)
+);
+----
+
+Because the primary key is composed of two columns, a ProtoBuf schema will be used to represent both the key and the value:
+
+[source,protobuf]
+----
+package library;
+
+message books_key {
+    required string isbn = 1;
+    required int32 reprint = 2;
+}
+
+message books_value {
+    optional string title = 1;
+    optional string author = 2;
+}
+----
