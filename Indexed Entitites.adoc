@@ -1,0 +1,59 @@
+== Indexed entities
+
+Defining indexed entities in a cache configuration currently requires those entities to be present in the schema cache. For example:
+
+[source,xml]
+----
+<distributed-cache name="cache">
+   <indexing>
+      <indexed-entities>
+         <indexed-entity>entity.proto</indexed-entity>
+      </indexed-entities>
+   </indexing>
+</distributed-cache>
+----
+requires the `entity.proto` entry.
+
+Adding entity schemas to the schema cache, however, can only be performed dynamically at runtime and not statically at startup.
+
+We should allow static configuration of the schema, either directly in the configuration as character data, or by referencing an external resource:
+
+[source,xml]
+----
+<distributed-cache name="cache">
+   <indexing>
+      <indexed-entities>
+         <indexed-entity>entity.proto</indexed-entity>
+         <indexed-entity-resource path="another.proto"/>
+         <indexed-entity-schema name=""><![CDATA[
+package entity;
+
+/**
+ * @Indexed
+ */
+message Person {
+
+    /**
+     * @Field(store = Store.YES)
+     */
+    optional int32 id = 1;
+
+    /**
+     * @Field(store = Store.YES)
+     * @SortableField
+     */
+    required string name = 2;
+
+    /**
+     * @Field(store = Store.YES)
+     */
+    required string surname = 3;
+}
+         ]]></indexed-entity-schema>
+      </indexed-entities>
+   </indexing>
+</distributed-cache>
+----
+
+On cache startup, the cache manager will ensure that the schema is added to the schema cache unless it is already present. 
+It is up to the user to ensure that external resources are identical across all nodes in the cluster.
