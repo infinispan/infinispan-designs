@@ -1,0 +1,81 @@
+== Server Transport Security
+
+JGroups offers various protocols to secure the transport, however they require complex setup which could be simplified by the server security configuration.
+
+== Encryption
+
+=== SSL/TLS
+
+JGroups does not directly offer the use of TLS/SSL for the TCP transport, although it does allow setting a custom `SocketFactory`.
+
+By using the server identity of a security realm, we can supply JGroups with an SSL-enabled SocketFactory. The server identity must have both a keystore as well as a truststore so that certificates are mutually trusted.
+
+By using namespaces, we can extend the transport configuration as follows:
+
+[source,xml]
+----
+<cache-container>
+    <transport>
+        <server:encryption>
+            <security-realm realm="cluster"/>
+        </server:encryption>
+    </transport>
+</cache-container>
+----
+
+To simplify the out-of-the-box configuration, we can include a `cluster` security realm with a commented-out server identity:
+
+[source,xml]
+----
+<server>
+    <security-realms>
+            <security-realm name="cluster">
+               <!-- Uncomment to enable TLS on the realm -->
+               <!-- server-identities>
+                  <ssl>
+                     <keystore path="cluster.pfx"
+                               keystore-password="password" alias="cluster"/>
+                    <truststore path="ca.pfx" password="password"/>
+                  </ssl>
+               </server-identities-->
+            </security-realm>
+         </security-realms>
+</server>
+----
+
+A big advantage of using SSL/TLS is that, if OpenSSL is available, we get native performance.
+
+=== SYM_ENCRYPT (optional)
+
+The `SYM_ENCRYPT` protocol requires all nodes to use the same secret stored within a keystore. We can use the server's credential stores to supply the secret:
+
+[source,xml]
+----
+<cache-container>
+    <transport>
+        <server:encryption>
+            <credential-reference store="credentials" alias="trust"/>
+        </server:encryption>
+    </transport>
+</cache-container>
+----
+
+=== ASYM_ENCRYPT (no)
+
+The complexity of configuring `ASYM_ENCRYPT` doesn't provide any additional value compared to the SSL/TLS approach described above.
+
+== Authentication (optional)
+
+When paired with a realm which can authenticate, depending on its features, we can set up JGroups authentication.
+
+=== Trust realm
+
+If the security realm contains a trust realm, we can automatically enable SSL client authentication without any further configuration
+
+=== Kerberos identity
+
+If the security realm has a Kerberos identity, we can automatically set up the `AUTH` JGroups protocol with the `KrbToken`
+
+=== Others
+
+Supporting realms with other types of authentication providers (properties, LDAP), while possible, would require encryption to prevent credential sniffing.
