@@ -1,0 +1,320 @@
+= Dynamic RBAC
+
+== Tracking Issue
+
+https://issues.redhat.com/browse/ISPN-13307
+
+== Description
+
+Add a way to dynamically manipulate (add, remove, modify) role/permission mappings.
+Currently such mappings are statically defined in the global authorization configuration.
+Delegate storage of the mappings to a new SPI (`RolePermissionMapper`).
+Add a default `ClusterPermissionMapper` which uses a persistent internal replicated cache `org.infinispan.PERMISSIONS`
+to store the role/permission mappings. Allow usage of a custom implementation of the SPI.
+
+== Compatibility impact
+
+Ensure that statically defined role/permission mappings cannot be manipulated.
+
+== Security impact
+
+Only users with `ADMIN` permissions are allowed to interact with the API.
+
+== Configuration Schema
+
+[source,xml]
+----
+<xs:element name="authorization" minOccurs="0">
+  <xs:complexType>
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="1">
+        <xs:element name="cluster-permission-mapper">
+          <xs:annotation>
+            <xs:documentation>
+              Uses the cluster permission mapper which stores the role to permission mappings within the cluster registry.
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="custom-permission-mapper">
+          <xs:annotation>
+            <xs:documentation>
+              Uses a custom permission mapper.
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:attribute name="class" type="xs:string">
+              <xs:annotation>
+                <xs:documentation>
+                  Class of the custom role to permission mapper.
+                </xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+</xs:element>
+----
+
+
+== Public API
+
+[source,java]
+----
+package org.infinispan.security;
+
+public interface RolePermissionMapper {
+   /**
+    * Sets the context for this {@link RolePermissionMapper}
+    *
+    * @param context
+    */
+   void setContext(AuthorizationMapperContext context);
+
+   /**
+    * Required permissions: <tt>ADMIN</tt>
+    * @param name the name of the role
+    * @return the {@link Role}
+    */
+   CompletionStage<Role> getRole(String name);
+
+   /**
+    * Required permissions: <tt>ADMIN</tt>
+    * @return all roles handled by this RolePermissionMapper
+    */
+   CompletionStage<Map<String, Role>> getAllRoles();
+}
+----
+
+[source,java]
+----
+package org.infinispan.security;
+
+public interface MutableRolePermissionMapper extends RolePermissionMapper {
+   /**
+    * Required permissions: <tt>ADMIN</tt>
+    */
+   CompletionStage<Void> addRole(Role role);
+
+   /**
+    * Required permissions: <tt>ADMIN</tt>
+    */
+   CompletionStage<Void> removeRole(String role);
+}
+----
+
+Introduce an `org.infinispan.security.AuthorizationMapperContext` interface that supersedes `org.infinispan.security.PrincipalRoleMapperContext`
+
+== Deprecations
+
+* `org.infinispan.security.PrincipalRoleMapperContext`
+
+== Hot Rod API
+
+N/A
+
+== REST API
+
+[source,json]
+----
+{
+    "components": {
+        "schemas": {
+            "role": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "permissions": {
+                        "type": "string",
+                        "enum": [
+                            "LIFECYCLE",
+                            "READ",
+                            "WRITE",
+                            "EXEC",
+                            "LISTEN",
+                            "BULK_READ",
+                            "BULK_WRITE",
+                            "ADMIN",
+                            "CREATE",
+                            "MONITOR",
+                            "ALL",
+                            "ALL_READ",
+                            "ALL_WRITE",
+                            "NONE"
+                        ]
+                    }
+                },
+                "required": [
+                    "name",
+                    "permissions"
+                ]
+            }
+        }
+    },
+    "paths": {
+        "/v2/security/permissions": {
+            "get": {
+                "description": "Returns all role-to-permission mappings",
+                "responses": {
+                    "200": {
+                        "description": "A list of roles and permissions.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/role"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v2/security/permissions/{roleName}": {
+            "get": {
+                "description": "Returns a single role-to-permission mapping",
+                "responses": {
+                    "200": {
+                        "description": "A list of permissions for the specified role.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/role"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Role not found"
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new role-to-permission mapping",
+                "parameters": {
+                    "roleName": {
+                        "name": "roleName",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "permissions": {
+                        "name": "permission",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "enum": [
+                                "LIFECYCLE",
+                                "READ",
+                                "WRITE",
+                                "EXEC",
+                                "LISTEN",
+                                "BULK_READ",
+                                "BULK_WRITE",
+                                "ADMIN",
+                                "CREATE",
+                                "MONITOR",
+                                "ALL",
+                                "ALL_READ",
+                                "ALL_WRITE",
+                                "NONE"
+                            ]
+                        }
+                    }
+                },
+                "responses": {
+                    "204": {
+                        "description": "The role was created"
+                    },
+                    "409": {
+                        "description": "Role already exists"
+                    }
+                }
+            },
+            "put": {
+                "description": "Replaces an existing role-to-permission mapping",
+                "parameters": {
+                    "roleName": {
+                        "name": "roleName",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "permissions": {
+                        "name": "permission",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "enum": [
+                                "LIFECYCLE",
+                                "READ",
+                                "WRITE",
+                                "EXEC",
+                                "LISTEN",
+                                "BULK_READ",
+                                "BULK_WRITE",
+                                "ADMIN",
+                                "CREATE",
+                                "MONITOR",
+                                "ALL",
+                                "ALL_READ",
+                                "ALL_WRITE",
+                                "NONE"
+                            ]
+                        }
+                    }
+                },
+                "responses": {
+                    "204": {
+                        "description": "The role was replaced"
+                    },
+                    "404": {
+                        "description": "Role not found"
+                    }
+                }
+            },
+            "delete": {
+                "description": "Remves a role-to-permission mapping",
+                "responses": {
+                    "204": {
+                        "description": "The role was deleted",
+                    },
+                    "404": {
+                        "description": "Role not found"
+                    }
+                }
+            }
+        }
+    }
+}
+----
+
+
+== CLI
+
+* `*roles create* --permissions='perm1'[,'perm2'...] _role_` Create a new role
+* `*roles alter* --permissions='perm1'[,'perm2'...] _role_` Alters an existing role
+* `*roles remove* _role_` Remove an existing roleReplace
+* `*roles ls*` List all roles
+
+== Console
+
+The console should provide a "Global roles" view, with the ability to list, add, edit and remove roles.
+
+== Operator
+
+This feature has no impact on the operator, aside from allowing custom configuration. The default configuration should suffice for most use-cases.
