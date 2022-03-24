@@ -1,0 +1,105 @@
+= Managing indexing operations at cache startup
+
+== Tracking Issue
+
+https://issues.redhat.com/browse/ISPN-13784
+
+== Description
+
+Allows the user to define some configuration to trigger mass indexing operations (e.g.: purge or reindex) when the cache starts.
+These actions are usually needed to keep data and indexes aligned (consistent).
+For instance if the data is persisted and indexes not or if the index persisted directory is always wiped out, the user might want to always trigger reindex on startup
+Similarly, if the data is non persisted and the indexes are persisted, the user might want to always trigger a purge on startup.
+We can introduce an Enum such as `startup-mode=NONE|REINDEX|PURGE`.
+It would allow us to extend it to some automatic mode `startup-mode=AUTO` where we can check for instance if a cache-store is configured.
+
+== Compatibility impact
+
+This change will not touch existing configurations, it will only provide more options.
+
+== Security impact
+
+This change can be made only on cache configuration, so there should be no security impact.
+
+== Configuration Schema
+
+Under `indexing` element, `complexType` and `sequence`:
+[source,xml]
+----
+<xs:attribute name="startup-mode" type="tns:startup-mode" default="none">
+  <xs:annotation>
+    <xs:documentation>
+      Specify the process to trigger on indexes when the cache starts.
+    </xs:documentation>
+  </xs:annotation>
+</xs:attribute>
+----
+
+At root level:
+[source, xml]
+----
+<xs:simpleType name="startup-mode">
+  <xs:restriction base="xs:token">
+    <xs:enumeration value="purge">
+      <xs:annotation>
+        <xs:documentation>
+          Purge will be triggered at cache startup time.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:enumeration>
+    <xs:enumeration value="reindex">
+      <xs:annotation>
+        <xs:documentation>
+          Reindex will be triggered at cache startup time.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:enumeration>
+    <xs:enumeration value="auto">
+      <xs:annotation>
+        <xs:documentation>
+          With this configuration Infinispan will try to run the right action to align cache data and indexes.
+          Purge will be triggered if the cache data is volatile and indexes are not.
+          Reindex will be triggered if the cache data is not volatile and indexes are.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:enumeration>
+    <xs:enumeration value="none">
+      <xs:annotation>
+        <xs:documentation>
+          No mass-indexing operation is triggered at cache startup time. This is the default.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:enumeration>
+  </xs:restriction>
+</xs:simpleType>
+----
+
+== Public API
+
+No need for any change.
+
+== Deprecations
+
+No need for any change.
+
+== Hot Rod API
+
+No need for any change.
+
+== REST API
+
+No need for any change.
+
+== CLI
+
+No need for any change.
+
+== Console
+
+No need for any change.
+
+== Operator
+
+This feature has no impact on the operator.
+
+

@@ -34,6 +34,7 @@ This repository contains various design proposals related to Infinispan
 * [Query language syntax and considerations](Infinispan-query-language-syntax-and-considerations.asciidoc)
 * [Java 8 API proposal](Java-8-API-proposal.md)
 * [Lock Reordering For Avoiding Deadlocks](Lock-Reordering-For-Avoiding-Deadlocks.asciidoc)
+* [Managing indexing operations at cache startup](managing-indexing-operations-at-cache-startup.asciidoc)
 * [Multi-tenancy for Hotrod Server](Multi-tenancy-for-Hotrod-Server.asciidoc)
 * [Near-Caching](Near-Caching.md)
 * [Non-Blocking State Transfer](Non-Blocking-State-Transfer.asciidoc)
