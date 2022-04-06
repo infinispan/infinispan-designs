@@ -1,0 +1,40 @@
+== Topology Id Rework
+
+The Infinispan Hot Rod client is able to know which node to direct requests to based on the key.
+This has to be updated every time the topology changes (new node leaves or joins the cluster).
+When the topology changes a counter is incremented that the server is aware of to signal this.
+This client then is able to tell the server which topology id it last knew about and in the case it is
+old the server will reply with the new id and the members.
+
+Unfortunately, this has an interesting problem if the entire server cluster is shut down but a client
+is still around.
+The client will of course not function when the cluster is gone, however when the server starts back up
+the server topology id will be reset back to 0.
+This means a client will have a _higher_ topology so the server will never send the cluster information
+and the client will, until the server toplogy catches up, no longer know what servers a key map to and
+also send to servers that may not even exist any longer.
+
+=== Suggested Fix
+
+Fixing this will require a few different things.
+
+* Change the toopology id to be a more unique number that can be recreated instead of an incrementing number
+** Possible choices are to hash the server member ids
+* Change so the server will send a new topology if the id does not match instead of being less than
+* Ensure the client applies the topology update even if the id does not match instead of being greater than
+
+
+=== Backwards Compatibility
+
+The changes suggested above are normally done as part of a new protocol, such as 3.2 or 4.0.
+But it may be desirable instead to apply retroactively to all versions of the protocol.
+
+However, some clients (13.0.0 & 9.4.24) had a change that made it so they only applied a topology update if the returned topology
+id was greater than their own.
+This means if a user upgrades the server the fix above will still not work as the client may or may not apply
+the update.
+
+This means we can either provide backwards compatibility to a subset of previous clients or to none, requiring a
+new protocol version to handle the new topology ids.
+It is unclear what approach should be done.
+Note, however, that for many users it is much simpler to update the server than it is for all clients.

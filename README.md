@@ -53,5 +53,6 @@ This repository contains various design proposals related to Infinispan
 * [Smoke Testsuite](Smoke-Testsuite.md)
 * [Spring 5 features, ideas and integration](Spring-5-features,-ideas-and-integration.md)
 * [Task Execution Design](Task-Execution-Design.md)
+* [Topology Id Rework](TopologyId.asciidoc)
 * [Total Order non Transactional Cache](Total-Order-non-Transactional-Cache.md)
 * [XSite Failover for Hot Rod clients](XSite-Failover-for-Hot-Rod-clients.md)
