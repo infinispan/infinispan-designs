@@ -19,10 +19,13 @@ also send to servers that may not even exist any longer.
 Fixing this will require a few different things.
 
 * Change the toopology id to be a more unique number that can be recreated instead of an incrementing number
-** Possible choices are to hash the server member ids
+** HashCode of pending (if not null) or read consistent hash
+** HashCode of the CacheTopology itself
 * Change so the server will send a new topology if the id does not match instead of being less than
 * Ensure the client applies the topology update even if the id does not match instead of being greater than
 
+Note that the server itself can still have an incrementing topology id, just the one it shares to the client
+will be a generated one.
 
 === Backwards Compatibility
 
