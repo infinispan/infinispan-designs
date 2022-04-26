@@ -1,0 +1,126 @@
+= Dynamic RBAC
+
+== Tracking Issue
+
+https://issues.redhat.com/browse/ISPN-13853
+
+== Description
+
+Multimap is a data structure that has gotten the attention from Infinispan users.
+The structure today lacks evolutions and support of features and new API of Infinispan:
+
+* REST API support
+* Supporting duplicates
+* Reactive API integration and development
+* Integration with Quarkus through the extension
+* Search and query support
+
+== Compatibility impact
+
+Ensure that the old Remote API and configuration still works.
+
+Under the hood, we will still keep using distributed caches, but we will know with the configuration that those
+caches are meant to behave as multimaps. This way we will be able to change the implementation details in
+the future if the structure becomes even more popular.
+
+Indexing and Query should evolve to detect that the content to be indexed is inside the list/set of the key/value.
+Query will be supported *only* if indexing is enabled.
+
+== Security impact
+
+N/A
+
+== Configuration Schema
+
+[source,xml]
+----
+<xs:complexType name="multimap">
+    <xs:complexContent>
+      <xs:extension base="tns:distributed-cache">
+        <xs:attribute name="duplicates" type="xs:boolean" default="false">
+          <xs:annotation>
+            <xs:documentation>Determines if the multimap supports duplicates in the values. True or false (default).</xs:documentation>
+          </xs:annotation>
+        </xs:attribute>
+      </xs:extension>
+    </xs:complexContent>
+</xs:complexType>
+----
+
+
+== Public API
+
+The work will be done for the new API only.
+
+== Deprecations
+
+* `org.infinispan.client.hotrod.multimap.RemoteMultimapCache`
+* `org.infinispan.client.hotrod.multimap.RemoteMultimapCacheManager`
+* `org.infinispan.client.hotrod.multimap.RemoteMultimapCacheManagerFactory`
+* `org.infinispan.client.hotrod.multimap.MultimapCacheManager`
+* `org.infinispan.client.hotrod.multimap.RemoteMultimapCache`
+* `org.infinispan.client.hotrod.multimap.MetadataCollection`
+
+== Hot Rod API
+
+The new API will be developed. Provide implementations for the available APIs:
+
+* org.infinispan.api.async.SyncMultiMap
+* org.infinispan.api.async.SyncMultiMaps
+* org.infinispan.api.async.MutinyMultiMap
+* org.infinispan.api.async.MutinyMultiMaps
+* org.infinispan.api.async.AsyncMultiMap
+* org.infinispan.api.async.AsyncMultiMaps
+
+== REST API
+
+Multimap REST API should be the almost the same as the Cache one.
+The difference is in the endpoint.
+
+Examples:
+[source]
+----
+GET /rest/v2/multimaps/
+
+GET /rest/v2/multimaps/{multimapName}?action=???
+
+DELETE /rest/v2/multimaps/{multimapName}/{multimapKey}
+----
+
+* CRUD multimap (providing a configuration to create a multimap, templates not supported)
+* Display Multimap content entries
+* Get values by key
+* In Indexing is enabled, multimaps support query
+* CRUD Key/Value. If a key exists we add the value. To remove a key/value we need to send the value as well.
+* CRUD Key/AllValues. We remove the entry completely.
+* Clearing Multimap operation
+* Enable/Disable rebalancing
+* Availability get/set
+* Replace not supported
+* Listeners support to enable interactions with near-caching
+
+
+== CLI
+
+* `*create multimap* --file=mymultimap.xml myMultimap` Create a new multimap
+* `*ls multimap* --file=mymultimap.xml myMultimap` List all multimaps
+* `*describe multimap/name*  View the configuration
+
+etc ...
+
+Provide the same CLI methods but targeting multimap instead of caches.
+
+== Console
+
+The console should use the new REST API and provide a new interface separate from the Caches tab
+where we will be able to CRUD operations over multimaps and display correctly the key/values of
+the multimap.
+The UX team should be in the loop to check out the design.
+
+== Operator
+
+Provide a MultimapCR
+
+== Quarkus Integration
+Integrate in Quarkus developing a new annotation `@Multimap` that will allow the use of dependency inyection
+to work with Multimaps in Quarkus.
