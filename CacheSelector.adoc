@@ -1,0 +1,346 @@
+= Cache Selector
+
+== Tracking Issue
+
+https://issues.redhat.com/browse/ISPN-14568
+
+== Description
+
+The RESP and Memcached protocol connectors present to the clients a single namespace (cache) which is statically defined in the protocol configuration.
+Since Infinispan supports multiple caches, we want to introduce a mechanism whereby the cache that is accessible through these protocols is selected according to dynamic mechanisms.
+Additionally, it may be desirable to implement this even for other protocols.
+
+Introduce an SPI that, based on context, which determines the cache to be used. Implementations should follow these requirements:
+
+* Support per-connection (`Subject`) selection.
+* Support name-translation selection (such as RESPs `select` command). Can also be used to implement cache aliases for Hot Rod and REST.
+* Support per-request (key) selection.
+
+The cache selector SPI can be specified per-connector.
+
+The server will automatically enable a default cache selector with the following features:
+
+* Dynamic manipulation of cache selection rules via the REST/CLI/Console.
+* Storage of dynamic configuration in the `ServerStateManager`.
+
+== Compatibility impact
+
+None.
+
+== Security impact
+
+Only users with `ADMIN` permissions are allowed to interact with the API.
+
+== Configuration Schema
+
+The configuration below applies to the server `endpoint` element (which configures the single-port connector) or to individual connector elements.
+The single-port configuration applies to any connectors exposed through it.
+
+[source,xml]
+----
+<xs:element name="cache-selector" minOccurs="0">
+  <xs:complexType>
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="1">
+        <xs:element name="default-cache-selector">
+          <xs:annotation>
+            <xs:documentation>
+              The default server cache selector.
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="custom-cache-selector">
+          <xs:annotation>
+            <xs:documentation>
+              Uses a custom cache selector.
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:attribute name="class" type="xs:string">
+              <xs:annotation>
+                <xs:documentation>
+                  Class of the custom cache selector.
+                </xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+</xs:element>
+----
+
+
+== Public API
+
+[source,java]
+----
+package org.infinispan.server.cache;
+
+/**
+ * The possible cache selection strategy
+ */
+public enum CacheSelectionStrategy {
+   CACHE_NAME,
+   SUBJECT,
+   KEY
+}
+----
+
+[source,java]
+----
+package org.infinispan.server.cache;
+
+public interface CacheSelector {
+   /**
+    * Returns whether this CacheSelector supports the specified CacheSelectionStrategy. If the cache selector also implements
+    * the MutableCacheSelector interface, the supported strategies may depend on the rules.
+    * @return true if the specified CacheSelectionStrategy is supported.
+    */
+   boolean supports(CacheSelectionStrategy strategy);
+
+   /**
+    * Selects a cache based on Subject. Invoked if this CacheSelector supports CacheSelectionStrategy.SUBJECT.
+    * This method will be invoked once after authentication.
+    * @param cacheManager
+    * @param subject
+    * @return the cache instance
+    * @param <K>
+    * @param <V>
+    */
+   default <K, V> Cache<K, V> selectCacheBySubject(EmbeddedCacheManager cacheManager, Subject subject) {
+      throw new UnsupportedOperationException();
+   }
+
+   /**
+    * Selects a cache based on a name. Invoked if this CacheSelector supports CacheSelectionStrategy.NAME.
+    * This can be used to implement cache aliases, where cache names are translated according to a lookup table.
+    * This method will be invoked once for protocols supporting a single cache (Memcached, RESP) and per-operation
+    * for protocols supporting multiple caches (Hot Rod, REST). It takes precedence over the SUBJECT strategy.
+    *
+    * @param cacheManager
+    * @param cacheName
+    * @return the cache instance
+    * @param <K>
+    * @param <V>
+    */
+   default <K, V> Cache<K, V> selectCacheByName(EmbeddedCacheManager cacheManager, String cacheName) {
+      throw new UnsupportedOperationException();
+   }
+
+   /**
+    * Selects a cache based on a key. Invoked if this CacheSelector supports CacheSelectionStrategy.KEY.
+    * This can be used to implement cache selection based on key prefix.
+    * This method will be invoked once per operation. It takes precedence over the SUBJECT and CACHE strategies.
+    *
+    * @param cacheManager
+    * @param key
+    * @return the cache instance
+    * @param <K>
+    * @param <V>
+    */
+   default <K, V> Cache<K, V> selectCacheByKey(EmbeddedCacheManager cacheManager, K key) {
+      throw new UnsupportedOperationException();
+   }
+}
+----
+
+[source,java]
+----
+package org.infinispan.server.cache;
+
+public class CacheSelectionRule  {
+   /**
+    * The name of this rule. It must be unique for the server.
+    */
+   String name();
+
+   /**
+    * The selection strategy implemented by this rule
+    */
+   CacheSelectionStrategy strategy();
+
+   /**
+    * Translates a "context" into a cache name according to the implemented strategy. Context depends on the strategy:
+    * <ul>
+    * <li><strong>CACHE</strong> context will be the name of the requested cache.</li>
+    * <li><strong>SUBJECT</strong> context will be a semicolon-separated list of the Subject's principals.</li>
+    * <li><strong>KEY</strong> context will be a string representation of the requested key.</li>
+    *
+    * </ul>
+    * @param context
+    * @return
+    */
+   String select(String context);
+}
+----
+
+[source,java]
+----
+package org.infinispan.server;
+
+/**
+ * The interface already exists. The following are method additions
+ */
+public interface ServerStateManager {
+   /**
+    * Sets the CacheSelectionRules for the named connector
+    * Required permissions: <tt>ADMIN</tt>
+    */
+   CompletionStage<Void> setCacheSelectionRules(String connectorName, Collection<CacheSelectionRule> rules);
+
+   /**
+    * Returns a collection of all CacheSelectionRules associated with the named connector
+    * Required permissions: <tt>ADMIN</tt>
+    */
+   CompletionStage<Collection<CacheSelectionRule>> getCacheSelectionRules(String connectorName);
+}
+----
+
+== Default Cache Selection Strategy
+
+Out-of-the-box, the server would enable a default cache selection strategy which stores rules in the clustered state.
+A rule is a structured string defined as `strategy|mapping|condition|name`.
+
+* `strategy` is one of: `subject`, `cache`, `key`
+* `mapping` is one of: `eq`, `prefix`, `regex`. These are implemented as `BiFunctions` which take as arguments the `condition` and the context
+* `condition` is the argument to the `mapping`
+* `name` is the name of the cache to be selected
+
+Examples:
+
+* `subject|regex|.\*user.*|cache1` if one of the Subject's principal matches the `.\*user.*` regex, select the `cache1` cache
+* `cache|eq|1|cache2` if the requested cache name is `1`, select the `cache2` cache
+* `key|prefix|a|cache3` if the key starts with `a`, select the `cache3` cache
+
+== Deprecations
+
+None.
+
+== Hot Rod API
+
+N/A
+
+== REST API
+
+[source,json]
+----
+{
+    "components": {
+        "schemas": {
+            "cache-selector-rule": {
+                "type": "object",
+                "properties": {
+                    "strategy": {
+                        "type": "string",
+                        "enum": [
+                            "subject",
+                            "cache",
+                            "key"
+                        ]
+                    },
+                    "mapping": {
+                        "type": "string",
+                        "enum": [
+                            "eq",
+                            "prefix",
+                            "regex"
+                        ]
+                    },
+                    "condition": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "strategy",
+                    "mapping",
+                    "condition",
+                    "name"
+                ]
+            }
+        }
+    },
+    "paths": {
+        "/v2/server/connectors/{connector}/cache-selector-rules": {
+            "get": {
+                "description": "Returns all cache selector rules for the connector",
+                "responses": {
+                    "200": {
+                        "description": "A list of cache selector rules.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/cache-selector-rule"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Connector not found"
+                    }
+                }
+            },
+            "post": {
+                "description": "Sets/replaces cache selector rules for the connector",
+                "requestBody": {
+                    "description": "",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/cache-selector-rule"
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "204": {
+                        "description": "The new cache selector rules have been applied."
+                    },
+                    "404": {
+                        "description": "Connector not found"
+                    }
+                }
+            },
+            "delete": {
+                "description": "Remves cache selector rules for the connector",
+                "responses": {
+                    "204": {
+                        "description": "The cache selector rules were deleted"
+                    },
+                    "404": {
+                        "description": "Connector not found"
+                    }
+                }
+            }
+        }
+    }
+}
+----
+
+
+== CLI
+
+* `*server connector cache-selector-rules ls* connector-name` +
+Gets cache selector rules for the connector
+* `*server connector cache-selector-rules set* connector-name --rules='strategy|mapping|condition|name',...` +
+Sets/replaces cache selector rules for the connector
+* `*server connector cache-selector-rules clear* connector-name` +
+Removes cache selector rules for the connector
+
+== Console
+
+The console should provide a "Cache selector" view, with the ability to modify the selector rules.
+
+== Operator
+
+This feature has no impact on the operator, aside from allowing custom configuration. The default configuration should suffice for most use-cases.
