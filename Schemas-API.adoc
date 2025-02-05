@@ -1,0 +1,38 @@
+# Proposal: Schema Manipulation in Hotrod for Protostream Infinispan
+
+## Goal
+To enhance schema evolution and management in Infinispan's Protostream serialization framework, we propose replacing the current API with a new schema manipulation mechanism.
+
+## Hotrod client side marshaller
+
+### Client side api today
+
+[source, java]
+----
+Schema schema = // programmatic schema
+MagazineMarshaller magazineMarshaller = new MagazineMarshaller(); // custom marshaller 1
+BookMarshaller bookMarshaller = new BookMarshaller(); // custom marshaller 2
+
+ProtoStreamMarshaller protostreamMarshaller = new ProtoStreamMarshaller();
+SerializationContext serializationContext = marshaller.getSerializationContext();
+FileDescriptorSource fds = FileDescriptorSource.fromString(schema.getName(), schema.toString());
+serializationContext.registerProtoFiles(fds);
+serializationContext.registerMarshaller(magazineMarshaller);
+serializationContext.registerMarshaller(bookMarshaller);
+builder.marshaller(protostreamMarshaller);
+builder.remoteCache("cacheName").marshaller(protostreamMarshaller);
+----
+
+### Client side api proposal
+
+[source, java]
+----
+Schema schema = // programmatic schema
+MagazineMarshaller magazineMarshaller = new MagazineMarshaller(); // custom marshaller 1
+BookMarshaller bookMarshaller = new BookMarshaller(); // custom marshaller 2
+
+ProtoStreamMarshaller protostreamMarshaller = new ProtoStreamMarshaller();
+protostreamMarshaller.register(schema, magazineMarshaller, bookMarshaller);
+
+builder.remoteCache("cacheName").marshaller(marshaller);
+----
