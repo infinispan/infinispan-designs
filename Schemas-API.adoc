@@ -36,3 +36,29 @@ protostreamMarshaller.register(schema, magazineMarshaller, bookMarshaller);
 
 builder.remoteCache("cacheName").marshaller(marshaller);
 ----
+
+### Administration API
+
+[source, java]
+----
+public interface RemoteCacheManagerAdmin {
+    SchemasAdministration schemas();
+}
+----
+
+[source, java]
+----
+public interface SchemasAdministration {
+    CompletionStage<SchemaOpResult> createAsync(Schema schema);
+    SchemaOpResult create(Schema schema);
+
+    CompletionStage<SchemaOpResult> updateAsync(Schema schema);
+    SchemaOpResult update(Schema schema);
+
+    CompletionStage<SchemaOpResult> deleteAsync(String name);
+    SchemaOpResult delete(String name);
+
+    CompletionStage<SchemaOpResult> validateAsync(Schema schema);
+    SchemaOpResult validate(Schema schema);
+}
+----
