@@ -134,10 +134,16 @@ public interface SchemasAdministration {
     CompletionStage<SchemaOpResult> deleteAsync(String name);
     SchemaOpResult delete(String name);
 
-    CompletionStage<SchemaOpResult> validateAsync(Schema schema);
-    SchemaOpResult validate(Schema schema);
-
     CompletionStage<SchemaErrors> retrieveSchemaErrors();
+
     SchemaErrors retrieveSchemaErrors(Schema schema);
+    // # Optional. Check if this is needed or possible. Not creating a schema and validating it only.
+        CompletionStage<SchemaOpResult> validateAsync(Schema schema);
+        SchemaOpResult validate(Schema schema);
+    // # end of optional
 }
 ----
+
+SchemaOpResult: Specify the content and return values when implementing it
+based on real code examples around (like keycloak or what quarkus or spring users do)
+
