@@ -37,6 +37,79 @@ protostreamMarshaller.register(schema, magazineMarshaller, bookMarshaller);
 builder.remoteCache("cacheName").marshaller(marshaller);
 ----
 
+### Administration api today
+Hotrod specific api does not exist. However, an existing REST API exists.
+
+Example of what clients are doing today to manage errors:
+
+[source, java]
+----
+    public static void uploadAndReindexCaches(RemoteCacheManager remoteCacheManager, GeneratedSchema schema, List<IndexedEntity> indexedEntities) {
+        var key = schema.getProtoFileName();
+        var current = schema.getProtoFile();
+
+        var protostreamMetadataCache = remoteCacheManager.<String, String>getCache(InternalCacheNames.PROTOBUF_METADATA_CACHE_NAME);
+        var stored = protostreamMetadataCache.getWithMetadata(key);
+        if (stored == null) {
+            if (protostreamMetadataCache.putIfAbsent(key, current) == null) {
+                logger.info("Infinispan ProtoStream schema uploaded for the first time.");
+            } else {
+                logger.info("Failed to update Infinispan ProtoStream schema. Assumed it was updated by other Keycloak server.");
+            }
+            checkForProtoSchemaErrors(protostreamMetadataCache);
+            return;
+        }
+        if (Objects.equals(stored.getValue(), current)) {
+            logger.info("Infinispan ProtoStream schema is up to date!");
+            return;
+        }
+        if (protostreamMetadataCache.replaceWithVersion(key, current, stored.getVersion())) {
+            logger.info("Infinispan ProtoStream schema successful updated.");
+            reindexCaches(remoteCacheManager, stored.getValue(), current, indexedEntities);
+        } else {
+            logger.info("Failed to update Infinispan ProtoStream schema. Assumed it was updated by other Keycloak server.");
+        }
+        checkForProtoSchemaErrors(protostreamMetadataCache);
+    }
+
+    private static void reindexCaches(RemoteCacheManager remoteCacheManager, String oldSchema, String newSchema, List<IndexedEntity> indexedEntities) {
+        if (indexedEntities == null || indexedEntities.isEmpty()) {
+            return;
+        }
+        var oldPS = KeycloakModelSchema.parseProtoSchema(oldSchema);
+        var newPS = KeycloakModelSchema.parseProtoSchema(newSchema);
+        var admin = remoteCacheManager.administration();
+
+        indexedEntities.stream()
+                .filter(Objects::nonNull)
+                .filter(indexedEntity -> isEntityChanged(oldPS, newPS, indexedEntity.entity()))
+                .map(IndexedEntity::cache)
+                .distinct()
+                .forEach(cacheName -> updateSchemaAndReIndexCache(admin, cacheName));
+    }
+----
+
+Example of what clients are doing today to retrieve errors:
+
+[source, java]
+----
+// For errors
+private static void checkForProtoSchemaErrors(RemoteCache<String, String> protostreamMetadataCache) {
+    var errors = protostreamMetadataCache.get(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX);
+    if (errors == null) {
+        return;
+    }
+    for (String errorFile : errors.split("\n")) {
+        logger.errorf("%nThere was an error in proto file: %s%nError message: %s%nCurrent proto schema: %s%n",
+        errorFile,
+        protostreamMetadataCache.get(errorFile + ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX),
+        protostreamMetadataCache.get(errorFile));
+    }
+}
+----
+
+https://github.com/keycloak/keycloak/blob/636fffe0bc37a63bd5a2578b6bbcd815364c41d8/model/infinispan/src/main/java/org/keycloak/marshalling/KeycloakIndexSchemaUtil.java#L71-L97
+
 ### Administration API
 
 [source, java]
@@ -55,10 +128,16 @@ public interface SchemasAdministration {
     CompletionStage<SchemaOpResult> updateAsync(Schema schema);
     SchemaOpResult update(Schema schema);
 
+    CompletionStage<SchemaOpResult> createOrUpdate(Schema schema);
+    SchemaOpResult createOrUpdate(Schema schema);
+
     CompletionStage<SchemaOpResult> deleteAsync(String name);
     SchemaOpResult delete(String name);
 
     CompletionStage<SchemaOpResult> validateAsync(Schema schema);
     SchemaOpResult validate(Schema schema);
+
+    CompletionStage<SchemaErrors> retrieveSchemaErrors();
+    SchemaErrors retrieveSchemaErrors(Schema schema);
 }
 ----
