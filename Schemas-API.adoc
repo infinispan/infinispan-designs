@@ -128,7 +128,7 @@ public interface SchemasAdministration {
     CompletionStage<SchemaOpResult> updateAsync(Schema schema);
     SchemaOpResult update(Schema schema);
 
-    CompletionStage<SchemaOpResult> createOrUpdate(Schema schema);
+    CompletionStage<SchemaOpResult> createOrUpdateAsync(Schema schema);
     SchemaOpResult createOrUpdate(Schema schema);
 
     CompletionStage<SchemaOpResult> deleteAsync(String name);
