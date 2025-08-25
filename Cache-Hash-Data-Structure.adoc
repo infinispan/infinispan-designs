@@ -1,0 +1,209 @@
+= Hash Data Structure
+
+Provide a Hash data structure to Infinispan users. The Hash is a flexible identifiable grouping of keys mapping to values.
+In this context, _flexible_ means it can have arbitrary mappings without needing a schema beforehand; _identifiable group_
+means the Hash structure receives a unique name and retrieves the complete key-value mapping.
+
+The Hash provides a general approach for users to represent their data structures using Infinispan. For example, by
+employing this, users can avoid using key prefixes to create an object in Cache.
+
+== Public API
+
+The work is for the new API only. The Hash data structure has the format of:
+
+[source,java]
+.Hash.java
+----
+public interface Hash<K, V> { // <1>
+
+   String getName();
+
+   V get(K key);
+
+   V put(K key, V value);
+
+   V remove(K key);
+
+   boolean containsKey(K key);
+
+   Set<K> keySet();
+
+   Collection<V> values();
+
+   Set<Map.Entry<K, V>> entrySet();
+
+   void clear();
+
+   int size();
+}
+----
+
+<1> The Hash data structure is a generic interface over `K` and `V`. We do not extend `Map<K, V>`, instead we add methods
+as needed.
+
+A `Hash<?, ?>` structure is local to a node. Meaning that operations applied to the local copy must be submitted
+through the public API before taking effect. After that, the `Hash<?, ?>` is distributed/replicated according to
+the configuration.
+
+We follow a state-based CRDT approach, merging the local Hash with the server's Hash. Since the `Hash<?, ?>` structures
+occupy a single entry in the Cache, the whole structure has a version instead of versioning per Hash property. Taking
+advantage of this, we can use the `compute*` method and directly apply the local changes. If a concurrent change happens,
+the `Hash<?, ?>` version is updated, and the replace fails, where the `compute*` retries again until it succeeds. Note
+this could lead to flooding the network, transmitting the `Hash<?, ?>` back and forth, but this only happens with heavy
+concurrent changes over the same structure.
+
+[IMPORTANT]
+.Inconsistency!
+====
+The use of `Hash<?, ?>` could return an outdated value, since the structure is a local copy.
+====
+
+To interact with the `Hash<K, V>`:
+
+[source, java]
+.HashCache.java
+----
+public interface HashCache<K> {
+
+   <HK, HV> HV put(K key, HK hashKey, HV hashValue);
+
+   <HK, HV> Hash<HK, HV> put(K key, Map<HK, HV> values);
+
+   <HK, HV> Map<HK, HV> get(K key, HK hashKey, HK ... others); // <1>
+
+   Hash<HK, HV> get(K key);
+
+   boolean remove(K key);
+
+   <HK> boolean remove(K key, HK hashKey, HK ... others);
+
+   boolean exists(K key);
+
+   <HK> boolean containsKey(K key, HK hashKey);
+
+   <HK, HV> Hash<HK, HV> submit(Hash<HK, HV> hash); // <2>
+}
+----
+
+<1> Returning a `Map<HK, HV>` to contain all the vargs keys.
+<2> The `submit` method is used to apply the local changes to the server's Hash. The server's `Hash<?, ?>` is returned.
+
+I see two options for the operation applying directly to a `Hash<?, ?>`, like `put` and `get`:
+
+1. The interface is just a convenient method. The concrete implementation internally calls the `submit` method,
+effectively transferring the `Hash<?, ?>` to the client, applying the operation, and submitting it to the server.
+2. We implement custom commands for these operations and rely on `compute*` only for the `submit` method. Although,
+unsure if this is feasible because the core would need to know about the `Hash<?, ?>` structure.
+
+And as of Multimap, we provide APIs for:
+
+=== Hot Rod API
+
+Developed only for the new API. Provide implementations for an `AsyncHashCache` and `MutinyHashCache`.
+
+=== REST API
+
+Hash REST API should be the almost the same as the Cache one.
+The difference is in the endpoint.
+
+Examples:
+[source]
+----
+GET /rest/v2/hashes/
+
+GET /rest/v2/hashes/{hashName}?action=???
+
+DELETE /rest/v2/hashes/{hashName}/{hashKey}
+
+DELETE /rest/v2/hashes/{hashName}/{hashKey}/{hashProperty}
+----
+
+* CRUD hashes (providing a configuration to create a hash, templates not supported)
+* Display Hash content entries
+* Get values by key
+* In Indexing is enabled, hashes support query
+* CRUD for operations available in the `HashCache<?>` API
+* Enable/Disable rebalancing
+* Availability get/set
+* Replace not supported
+* Listeners support to enable interactions with near-caching
+
+
+== Using the Hash
+
+A new maven module is created.
+
+=== Configuration Schema
+
+[source,xml]
+----
+<xs:complexType name="hashes">
+    <xs:sequence>
+        <xs:element name="hash" type="hash" minOccurs="0" maxOccurs="unbounded">
+            <xs:annotation>
+                <xs:documentation>
+                    Defines a hash data structure.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+    </xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="hash">
+    <xs:attribute name="name" type="xs:ID" use="required">
+        <xs:annotation>
+            <xs:documentation>
+                A unique name for the hash.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:attribute>
+</xs:complexType>
+----
+
+To create and use a `HashCache<?>`:
+
+```java
+try (Infinispan ispn = Infinispan.create(builder.build())) {
+   Hashes hashes = ispn.sync().hashes(); // <1>
+   HashCache<String> users = hashes.get("users");
+
+   users.put("42", Map.of("auth", "token", "role", "user"));
+   System.out.println(hashCache.get("42")); // {"auth": "token", "role": "user"}
+}
+```
+
+<1> We provide an implementation for `sync()`, `async()`, and `mutiny()`.
+
+Alternatively, applying multiple operation to the `Hash<?, ?>`, should be:
+
+```java
+try (Infinispan ispn = Infinispan.create(builder.build())) {
+   Hashes hashes = ispn.sync().hashes();
+   HashCache<String> users = hashes.get("users");
+
+   Hash<String, String> hash = users.get("42");
+
+   hash.put("auth", "token");
+   hash.put("role", "user");
+
+   users.submit(hash);
+
+   System.out.println(hashCache.get("42")); // {"auth": "token", "role": "user"}
+}
+```
+
+After applying the operations, then submits the `Hash<String, String>` to the server. Note that in an environment with
+concurrent updates applied to the "users" Hash with key "42", the values could be different already when it is retrieved.
+
+== Infinispan Server Hash
+
+We can build everything on top of a `Cache<K, Hash<HK, HV>>`, using the existing operations available.
+A few open questions are:
+
+* (How) Do we provide the complete set of Cache configurations to Hash? Since we build on top of Cache, it seems
+  reasonable to have the whole configuration options available.
+* Does the expiration apply to a key or a property within the Hash? It seems easier to have the expiration set
+  for the whole Hash. At this point, we're going with an expiration for the whole Hash.
+* Can we integrate this with querying and indexing? I understand we do not provide this over dynamic objects.
+
+

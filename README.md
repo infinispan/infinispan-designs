@@ -30,6 +30,7 @@ This repository contains various design proposals related to Infinispan
 * [Index affinity proposal](Index-affinity-proposal.asciidoc)
 * [CLI](Infinispan-CLI.asciidoc)
 * [Hibernate Second-Level Cache improvements](Infinispan-Hibernate-Second-Level-Cache-improvements.md)
+* [Hash Cache Data Structure](Cache-Hash-Data-Structure.adoc)
 * [Query - Design and Planning](Infinispan-Query---Design-and-Planning.asciidoc)
 * [Query language syntax and considerations](Infinispan-query-language-syntax-and-considerations.asciidoc)
 * [Java 8 API proposal](Java-8-API-proposal.md)
