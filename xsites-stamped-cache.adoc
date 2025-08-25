@@ -1,0 +1,172 @@
+# Cross Site Replication  - Stamped Cache
+
+## Tracking issue
+
+* Main ticket: https://issues.redhat.com/browse/ISPN-13706
+
+## Context / Component
+
+Asynchronous cross-site replication
+
+## Motivation
+
+Asynchronous cross-site replication have been improved recently with a ne algorithm and conflict resolution.
+It is the recommended configuration for cross-site replication since the latency between sites does not impact the ongoing requests.
+
+On other hand, its major disadvantage is not knowing when an update have been replicated. While synchronous cross-site replication has feedback if the update was applied to the remote site or not, there is no such thing with asynchronous cross-site replication.
+
+It is recommended to use some kind of affinity with asynchronous cross-site replication, but in some use cases, that is not possible.
+As an example, an user may update a key in site `LON` and try to fetch its value in site `NYC`, and it may see the old value. 
+
+This document introduces a new interface to handle the scenario above.
+
+The goal is to generate a stamp when a key is updated and the application can use it to read in the remote site.
+
+
+## Stamp
+
+The stamp is an opaque string which encodes all the necessary information for any site to identify and update or a more recent update.
+
+It needs to encode the key, the version and the originator site.
+
+## API
+
+### StampedValue
+
+Used as a response, it aggregates the operation return value to a stamp. 
+The `isValid()` method identifies if the value and/or stamp are valid.
+It is always `true` for a write operation (until we introduce conditional writes if there is demand for them).
+
+```java
+interface StampedValue<T> {
+    /**
+    * returns the value.
+    */
+    T getValue();
+
+    /**
+    * returns the stamp.
+    */
+    ? getStamp();
+
+    /**
+    * returns true if the stamp is valid.
+    */
+    boolean isValid();
+}
+```
+
+### StampedCache
+
+This API is used for both embedded and remote caches. 
+It allows write and read a single key.
+
+```java
+interface StampedCache<K,V> {
+    /**
+    * Stores a key/value pair and returns the previous value
+    */
+    CompletionStage<StampedValue<V>> put(K key, V value, Metadata metadata);
+
+    /**
+    * Remove the key and returns the previous value
+    */
+    CompletionStage<StampedValue<V>> remove(K key);
+
+    /**
+    * Returns the value associated to the key.
+    *
+    * If the provided stamp is not valid, it returns the local value and StampedValue.isValid() returns false.
+    *
+    * The timeout is the time to wait for the update from the remote site. If the update is not received on time, it returns the local value and StampedValue.isValid() returns false.
+    */
+    CompletionStage<StampedValue<V>> get(K key, ? stamp, long timeout, TimeUnit unit)
+}
+```
+
+TODO! sync and reactive API?
+
+## Limitations
+
+### Transactional caches
+
+Unfortunately, writes are applied at commit time which makes impossible to generate and return a stamp to the application.
+
+### Multi-key operation
+
+Each key in a multi-key operation has a different version which makes difficult to generate a stamp valid for all of them.
+
+This limitation can be avoided if
+
+* The stamp encodes multiple keys.
+* Return a map/list of 'StampedValue'
+
+## Implementation
+
+### Stamp
+
+The stamp will encode the originator site, the key and the version.
+
+.Stamp Format
+[%header, cols=3, rows=4]
+|===
+| Field | Length | Details
+
+|Site Name
+|Variable
+|Part of the vector clock.
+
+|Key hash code
+|4 bytes
+|Optimization: can detect if the stamp is being used with the correct key.
+
+|topology
+|4 bytes
+|Part of the vector clock.
+
+|version
+|8 bytes
+|Part of the vector clock.
+|===
+
+It is not decided if the stamp will be an `interface`, a base64 `String` or just a `byte[]`.
+
+Just keep in mind it must be simpler to attach to the REST protocol and for the users to use it.
+If it is an `interface`, we need factory to build and convert to/from `String`.
+
+### Commands
+
+A new `Flag` is required to detect when the command make uses of the stamp.
+
+A new command for reading may be required (or change the current `GetKeyValueCommand`).
+
+### Commands logic
+
+Write operations need to create the `Stamp`.
+
+Read operations need to wait for the remote site update.
+`EntryWrappingInterceptor` seems the better place for this logic.
+An "internal" notification system is also required.
+
+### Hot Rod Protocol
+
+Changes are required in the protocol to attach the `Stamp` information.
+
+### Cross-Site Replication
+
+No changes are expected
+
+## Possible problematic patterns
+
+### Put and Remove
+
+```
+client-1 in site A does put(k,v) -> S
+client-2 in site B does remove(k)
+client-1 in site B does get(k, S)
+```
+In the read, the client-1 may wait forever (until timeout) if it happens after the tombstone is no longer available.
+
+
+## FAQ
+
