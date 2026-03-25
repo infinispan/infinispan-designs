@@ -1,0 +1,65 @@
+= System Upgrades & Marshalling Architecture
+
+== Marshalling Architecture & Exceptions
+
+=== Rest Cache Exception (v1.0)
+
+Implement a hardcoded exception for the "Rest Cache" to bypass broken media type encoding. This prevents standard validation from failing a known-broken component during the transition.
+
+=== Named Marshallers
+
+Implement named marshallers that can be overwritten at the media type level.
+
+=== Conflict Check
+
+If Storage and Request media types both have defined marshallers and they do not match, the system must throw an error.
+
+== Cluster Heterogeneity & Join Logic
+
+=== Relaxed Join Validation
+
+If a node joins with a different media type than the existing cluster, allow it to proceed without error. This ensures the cluster can stabilize during the 1.0 transition phase.
+
+=== Media-Type Aware Commands
+
+All internal commands must account for the specific storage media types of target nodes and perform dynamic conversion.
+
+=== Optimization
+
+Elide (skip sending) the media type metadata if the cluster is confirmed to be homogeneous.
+
+== Persistence Layer Logic (Hierarchy of Intent)
+
+=== Rule 1 (Bit-for-Bit)
+
+If a Storage Layer is defined, default to bit-for-bit persistence to avoid transcoding overhead.
+
+=== Rule 2 (Fallback)
+
+If no storage layer is defined, use the default user-defined marshaller.
+
+=== Rule 3 (The Override Warning)
+
+Log a performance warning if the user overrides both the persistence and storage layers with different configurations, as this forces constant transcoding.
+
+=== Key Equality & Identity
+
+Use a Key Wrapper or Identity Resolver to bridge the gap between binary keys (Persistence) and Java Object keys (Storage) to ensure equality checks don't fail.
+
+== Deployment & Rollout Strategy (Lifecycle)
+
+=== Pre-Migration Options
+
+There are two options for preparing the cluster for migration:
+
+==== Option 1: Marshaller Installation on Old Nodes
+
+The new marshaller must be installed in the old nodes. If not possible at runtime, they must first do an "upgrade" of the existing version but with the marshaller added. Then once the marshaller is installed, the user can perform a rolling upgrade to the newer version as the marshallers are in place.
+
+==== Option 2: Dual Marshaller Installation on New Nodes
+
+If the user doesn't want to perform the "upgrade" procedure on the old cluster, they can install both the new and old marshaller on the new cluster nodes and do the conversion on the new nodes instead.
+
+=== Phase 1 (Post-Migration Release)
+
+* Total Code Cleanup: Remove all bridge logic, the Rest Cache hardcoded exception, and the relaxed join validation.
