@@ -1,0 +1,588 @@
+// Infinispan gRPC Cache Operations
+//
+// Proto definitions for core cache put/get operations and their variants.
+// These are the most common operations and form the foundation of the
+// gRPC cache service.
+//
+// Design context:
+//   - Strategy C (native Netty HTTP/2 + ProtoStream, no grpc-java)
+//   - Content negotiation via metadata headers, not proto fields
+//   - Topology awareness via x-infinispan-topology-id trailer
+//   - Operation flags via int32 bitmask in messages
+//   - Default: IGNORE_RETURN_VALUES on writes (no previous value unless
+//     FORCE_RETURN_VALUE flag is set)
+//   - Keys are opaque bytes; default media type is text/plain (raw UTF-8
+//     strings). Set x-infinispan-key-media-type to override.
+//   - Values are opaque bytes; default media type is application/x-protobuf
+//     (raw protobuf-encoded messages). The server wraps/unwraps the internal
+//     WrappedMessage envelope transparently at the byte level.
+//     Set x-infinispan-value-type to the protobuf type name (e.g.
+//     "sample_bank_account.User") so the server can resolve the type ID.
+//   - For advanced use, set x-infinispan-value-media-type to
+//     application/x-protostream to send pre-wrapped WrappedMessage bytes.
+
+syntax = "proto3";
+
+package org.infinispan.grpc.v1;
+
+option java_package = "org.infinispan.server.grpc.api";
+option java_multiple_files = true;
+
+
+// ============================================================================
+// Flag constants (documented, not compiled — used in int32 flags fields)
+// ============================================================================
+//
+// FORCE_RETURN_VALUE         = 0x0001  — return previous value on writes
+// DEFAULT_LIFESPAN           = 0x0002  — use server-configured default lifespan
+// DEFAULT_MAXIDLE            = 0x0004  — use server-configured default max idle
+// SKIP_CACHE_LOAD            = 0x0008  — do not load from persistent store
+// SKIP_INDEXING              = 0x0010  — do not update query indexes
+// SKIP_LISTENER_NOTIFICATION = 0x0020  — do not fire listener events
+
+
+// ============================================================================
+// Common types
+// ============================================================================
+
+// Metadata returned with cache entries.
+message EntryMetadata {
+  // Entry version — opaque numeric version for conditional operations.
+  // Monotonically increasing per key within a cache.
+  int64 version = 1;
+
+  // Time-to-live in milliseconds. -1 = immortal, 0 = server default.
+  int64 lifespan_ms = 2;
+
+  // Max idle time in milliseconds. -1 = no idle expiry, 0 = server default.
+  int64 max_idle_ms = 3;
+
+  // Server timestamp when the entry was created (millis since epoch).
+  int64 created = 4;
+
+  // Server timestamp when the entry was last accessed (millis since epoch).
+  int64 last_used = 5;
+}
+
+
+// ============================================================================
+// Put operations
+// ============================================================================
+
+// Unconditional put: always stores the entry, replacing any existing value.
+//
+// Equivalent to: Hot Rod PUT (0x01), REST PUT /v2/caches/{cache}/{key}
+//
+// Metadata headers (gRPC request metadata):
+//   x-infinispan-cache:            cache name (required)
+//   x-infinispan-key-media-type:   format of key bytes   (default: text/plain)
+//   x-infinispan-value-media-type: format of value bytes (default: application/x-protobuf)
+//   x-infinispan-value-type:       protobuf type name    (e.g. "sample_bank_account.User")
+//   x-infinispan-topology-id:      client's current topology ID
+//
+// Response trailers:
+//   x-infinispan-topology-id:      server's current topology ID
+message PutRequest {
+  bytes key = 1;
+  bytes value = 2;
+
+  // Time-to-live in milliseconds. 0 = use server default, -1 = immortal.
+  // Ignored if DEFAULT_LIFESPAN flag is set.
+  int64 lifespan_ms = 3;
+
+  // Max idle time in milliseconds. 0 = use server default, -1 = no idle.
+  // Ignored if DEFAULT_MAXIDLE flag is set.
+  int64 max_idle_ms = 4;
+
+  // Operation flags bitmask.
+  // Set FORCE_RETURN_VALUE (0x0001) to receive the previous value.
+  int32 flags = 5;
+}
+
+message PutResponse {
+  // Previous value, present only when FORCE_RETURN_VALUE was set AND a
+  // previous entry existed. Empty otherwise.
+  optional bytes previous_value = 1;
+
+  // Previous entry metadata, present only when FORCE_RETURN_VALUE was set
+  // AND a previous entry existed.
+  optional EntryMetadata previous_metadata = 2;
+}
+
+
+// ============================================================================
+// Get operations
+// ============================================================================
+
+// Retrieves an entry by key.
+//
+// Equivalent to: Hot Rod GET_WITH_METADATA (0x1B), REST GET /v2/caches/{cache}/{key}
+//
+// Metadata headers (gRPC request metadata):
+//   x-infinispan-cache:            cache name (required)
+//   x-infinispan-key-media-type:   format of key bytes   (default: text/plain)
+//   x-infinispan-value-media-type: desired format for returned value bytes
+//                                  (default: application/x-protobuf)
+//   x-infinispan-topology-id:      client's current topology ID
+//
+// Response trailers:
+//   x-infinispan-topology-id:      server's current topology ID
+message GetRequest {
+  bytes key = 1;
+
+  // Operation flags bitmask (e.g. SKIP_CACHE_LOAD).
+  int32 flags = 2;
+}
+
+message GetResponse {
+  // The value. Not present if the key does not exist.
+  optional bytes value = 1;
+
+  // Entry metadata. Not present if the key does not exist.
+  optional EntryMetadata metadata = 2;
+}
+
+
+// ============================================================================
+// Conditional operations
+// ============================================================================
+
+// Put if absent: stores the entry only if the key does not already exist.
+// Returns the existing value if present (regardless of FORCE_RETURN_VALUE).
+//
+// Equivalent to: Hot Rod PUT_IF_ABSENT (0x05), REST POST /v2/caches/{cache}/{key}
+message PutIfAbsentRequest {
+  bytes key = 1;
+  bytes value = 2;
+  int64 lifespan_ms = 3;
+  int64 max_idle_ms = 4;
+  int32 flags = 5;
+}
+
+message PutIfAbsentResponse {
+  // True if the entry was created (key did not exist).
+  bool created = 1;
+
+  // If created=false, the existing value.
+  optional bytes existing_value = 2;
+
+  // If created=false, the existing entry metadata.
+  optional EntryMetadata existing_metadata = 3;
+}
+
+
+// Replace: replaces the value only if the key already exists.
+//
+// Equivalent to: Hot Rod REPLACE (0x07)
+message ReplaceRequest {
+  bytes key = 1;
+  bytes value = 2;
+  int64 lifespan_ms = 3;
+  int64 max_idle_ms = 4;
+  int32 flags = 5;
+}
+
+message ReplaceResponse {
+  // True if the entry was replaced (key existed).
+  bool replaced = 1;
+
+  // Previous value, present only when FORCE_RETURN_VALUE was set AND
+  // the key existed.
+  optional bytes previous_value = 2;
+  optional EntryMetadata previous_metadata = 3;
+}
+
+
+// Replace if unmodified: replaces the value only if the key exists AND the
+// current version matches the provided version. This is the CAS primitive.
+//
+// Equivalent to: Hot Rod REPLACE_IF_UNMODIFIED (0x09)
+message ReplaceIfUnmodifiedRequest {
+  bytes key = 1;
+  bytes value = 2;
+  int64 lifespan_ms = 3;
+  int64 max_idle_ms = 4;
+  int32 flags = 5;
+
+  // Required: the version to compare against. Obtain from GetResponse.metadata.version
+  // or from a previous PutResponse.previous_metadata.version.
+  int64 version = 6;
+}
+
+message ReplaceIfUnmodifiedResponse {
+  // True if the entry was replaced (version matched).
+  bool replaced = 1;
+
+  // Previous value, present only when FORCE_RETURN_VALUE was set.
+  optional bytes previous_value = 2;
+  optional EntryMetadata previous_metadata = 3;
+}
+
+
+// ============================================================================
+// Remove operations
+// ============================================================================
+
+// Unconditional remove: removes the entry for the given key.
+//
+// Equivalent to: Hot Rod REMOVE (0x0B), REST DELETE /v2/caches/{cache}/{key}
+message RemoveRequest {
+  bytes key = 1;
+  int32 flags = 2;
+}
+
+message RemoveResponse {
+  // True if an entry was removed (key existed).
+  bool removed = 1;
+
+  // Previous value, present only when FORCE_RETURN_VALUE was set AND
+  // the key existed.
+  optional bytes previous_value = 2;
+  optional EntryMetadata previous_metadata = 3;
+}
+
+
+// Remove if unmodified: removes the entry only if the current version matches.
+//
+// Equivalent to: Hot Rod REMOVE_IF_UNMODIFIED (0x0D)
+message RemoveIfUnmodifiedRequest {
+  bytes key = 1;
+  int32 flags = 2;
+
+  // Required: the version to compare against.
+  int64 version = 3;
+}
+
+message RemoveIfUnmodifiedResponse {
+  // True if the entry was removed (version matched).
+  bool removed = 1;
+
+  // Previous value, present only when FORCE_RETURN_VALUE was set AND
+  // the key existed and was removed.
+  optional bytes previous_value = 2;
+  optional EntryMetadata previous_metadata = 3;
+}
+
+
+// ============================================================================
+// Existence check
+// ============================================================================
+
+// Check whether a key exists without retrieving the value.
+//
+// Equivalent to: Hot Rod CONTAINS_KEY (0x0F)
+message ContainsKeyRequest {
+  bytes key = 1;
+  int32 flags = 2;
+}
+
+message ContainsKeyResponse {
+  bool exists = 1;
+}
+
+
+// ============================================================================
+// Bulk operations
+// ============================================================================
+
+// Put multiple entries atomically.
+//
+// Equivalent to: Hot Rod PUT_ALL (0x2D), REST POST /v2/caches/{cache}
+message PutAllRequest {
+  repeated PutAllEntry entries = 1;
+  int64 lifespan_ms = 2;
+  int64 max_idle_ms = 3;
+  int32 flags = 4;
+}
+
+message PutAllEntry {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message PutAllResponse {
+  // Empty — PutAll does not return previous values even with
+  // FORCE_RETURN_VALUE (matching Hot Rod behaviour).
+}
+
+
+// Get multiple entries in a single round-trip.
+//
+// Equivalent to: Hot Rod GET_ALL (0x2F)
+message GetAllRequest {
+  repeated bytes keys = 1;
+  int32 flags = 2;
+}
+
+message GetAllResponse {
+  repeated GetAllEntry entries = 1;
+}
+
+message GetAllEntry {
+  bytes key = 1;
+  bytes value = 2;
+  EntryMetadata metadata = 3;
+}
+
+
+// ============================================================================
+// Cache-level operations
+// ============================================================================
+
+// Returns the number of entries in the cache.
+//
+// Equivalent to: Hot Rod SIZE (0x29)
+message SizeRequest {
+  int32 flags = 1;
+}
+
+message SizeResponse {
+  int64 size = 1;
+}
+
+
+// Clears all entries from the cache.
+//
+// Equivalent to: Hot Rod CLEAR (0x13)
+message ClearRequest {
+  int32 flags = 1;
+}
+
+message ClearResponse {
+  // Empty.
+}
+
+
+// Simple ping to verify connectivity and cache existence.
+//
+// Equivalent to: Hot Rod PING (0x17)
+message PingRequest {
+  // Empty.
+}
+
+message PingResponse {
+  // Empty — success is indicated by grpc-status OK.
+}
+
+
+// ============================================================================
+// Query operations
+// ============================================================================
+
+// Named parameter value for Ickle query predicates.
+// Supports the scalar types used in WHERE clauses: string, integer, floating
+// point, boolean, and raw bytes.
+//
+// Usage: for a query like "FROM User WHERE age > :minAge", the client sends
+//   QueryNamedParameter { name: "minAge", int_value: 21 }
+message QueryNamedParameter {
+  string name = 1;
+  oneof value {
+    string string_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bool bool_value = 5;
+    float float_value = 6;
+    int32 int32_value = 7;
+    bytes bytes_value = 8;
+  }
+}
+
+// Execute an Ickle query against the cache.
+//
+// Ickle is a SQL-like query language supporting WHERE, ORDER BY, GROUP BY,
+// projections, aggregations, full-text predicates, and named parameters.
+//
+// Equivalent to: Hot Rod QUERY (0x1F), REST GET /v2/caches/{cache}?action=search
+//
+// Authorization: requires BULK_READ permission.
+//
+// Metadata headers (gRPC request metadata):
+//   x-infinispan-cache:            cache name (required)
+//   x-infinispan-topology-id:      client's current topology ID
+//
+// Response trailers:
+//   x-infinispan-topology-id:      server's current topology ID
+//
+// Examples:
+//   "FROM sample_bank_account.User WHERE name = :name AND age > :minAge"
+//   "SELECT name, age FROM sample_bank_account.User ORDER BY age DESC"
+//   "FROM sample_bank_account.Transaction WHERE amount > 1000"
+//   "DELETE FROM sample_bank_account.User WHERE status = 'INACTIVE'"
+message QueryRequest {
+  // The Ickle query string (required).
+  string query_string = 1;
+
+  // Named parameters referenced in the query string via :paramName syntax.
+  repeated QueryNamedParameter named_parameters = 2;
+
+  // Pagination: starting offset (0-based). Default: 0.
+  int64 start_offset = 3;
+
+  // Pagination: maximum number of results to return.
+  // 0 = server default, -1 = no limit.
+  int32 max_results = 4;
+
+  // Hit count accuracy threshold.
+  // -1 = exact count (default). Values >= 0 allow approximate hit counts
+  // for better performance on large result sets — the server may stop
+  // counting after reaching the threshold.
+  int32 hit_count_accuracy = 5;
+
+  // Execute query on the local node only (no cluster-wide distribution).
+  // Useful for debugging or when data is known to be local.
+  bool local = 6;
+
+  // Operation flags bitmask (e.g. SKIP_CACHE_LOAD).
+  int32 flags = 7;
+}
+
+message QueryResponse {
+  // Number of result rows in this response page.
+  int32 num_results = 1;
+
+  // Number of projected columns. 0 if the query returns full entities
+  // (e.g. "FROM User ..."). Greater than 0 for projection queries
+  // (e.g. "SELECT name, age FROM User ...").
+  int32 projection_size = 2;
+
+  // Query results, encoded as protobuf WrappedMessage bytes.
+  //
+  // When projection_size == 0 (full entity query):
+  //   Each element is a complete protobuf-encoded entity. The entity type
+  //   is determined by the query's FROM clause and the cache's value
+  //   media type.
+  //
+  // When projection_size > 0 (projection query):
+  //   Every projection_size consecutive elements form one result row.
+  //   Each element is a protobuf-encoded scalar value (string, int64,
+  //   double, etc.) corresponding to one projected column.
+  //   Total elements = num_results * projection_size.
+  repeated bytes results = 3;
+
+  // Total number of entries matching the query across the entire result
+  // set (not just this page). Use with start_offset/max_results for
+  // pagination.
+  int64 hit_count = 4;
+
+  // True if hit_count is exact. False if the count is approximate
+  // (when hit_count_accuracy was set to a threshold in the request).
+  bool hit_count_exact = 5;
+}
+
+
+// ============================================================================
+// Service definition
+// ============================================================================
+
+// CacheService provides the core cache operations.
+//
+// Cache name is specified via the `x-infinispan-cache` gRPC metadata header
+// on every RPC, NOT as a field in request messages. This keeps messages
+// cache-agnostic and allows client interceptors to set the cache name once
+// for all RPCs on a channel or sub-channel.
+//
+// Topology awareness:
+//   - Client sends `x-infinispan-topology-id` in request metadata
+//   - Server returns `x-infinispan-topology-id` in response trailers
+//   - On mismatch, client calls TopologyService.GetTopology to refresh
+//
+// Content negotiation:
+//   - `x-infinispan-key-media-type` (default: text/plain) and
+//     `x-infinispan-value-media-type` (default: application/x-protobuf)
+//   - `x-infinispan-value-type`: protobuf type name for WrappedMessage wrapping
+//   - Server wraps/unwraps WrappedMessage at byte level (no parsing)
+//   - For non-protobuf formats, server transcodes via EncoderRegistry
+//
+// Authentication:
+//   - `authorization` header in request metadata (Bearer, Basic, or mTLS)
+//   - Cached per-connection after first successful auth
+service CacheService {
+
+  // --- Key-value operations ---
+
+  rpc Put(PutRequest) returns (PutResponse);
+
+  rpc Get(GetRequest) returns (GetResponse);
+
+  rpc PutIfAbsent(PutIfAbsentRequest) returns (PutIfAbsentResponse);
+
+  rpc Replace(ReplaceRequest) returns (ReplaceResponse);
+
+  rpc ReplaceIfUnmodified(ReplaceIfUnmodifiedRequest) returns (ReplaceIfUnmodifiedResponse);
+
+  rpc Remove(RemoveRequest) returns (RemoveResponse);
+
+  rpc RemoveIfUnmodified(RemoveIfUnmodifiedRequest) returns (RemoveIfUnmodifiedResponse);
+
+  rpc ContainsKey(ContainsKeyRequest) returns (ContainsKeyResponse);
+
+  // --- Query ---
+
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // --- Bulk operations ---
+
+  rpc PutAll(PutAllRequest) returns (PutAllResponse);
+
+  rpc GetAll(GetAllRequest) returns (GetAllResponse);
+
+  // --- Cache-level operations ---
+
+  rpc Size(SizeRequest) returns (SizeResponse);
+
+  rpc Clear(ClearRequest) returns (ClearResponse);
+
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+
+// ============================================================================
+// Schema service
+// ============================================================================
+
+// SchemaService provides protobuf schema management and type introspection.
+//
+// This service supports the optimized encoding tier: clients call GetTypes
+// once at connect time to obtain type name → type ID mappings, then perform
+// WrappedMessage wrapping client-side for zero-conversion put/get operations.
+//
+// Schema management RPCs (register, update, delete) will be added as part
+// of the admin service design. This initial definition covers the type
+// introspection needed for optimized content negotiation.
+service SchemaService {
+
+  // Returns all registered protobuf type name → type ID mappings.
+  //
+  // Called once at client connect time; results are cached locally.
+  // The mapping is stable for the lifetime of a deployment — type IDs
+  // are assigned at schema registration time and never change.
+  //
+  // Clients in the optimized encoding tier use these mappings to wrap
+  // values in WrappedMessage format client-side, avoiding server-side
+  // conversion entirely.
+  //
+  // Equivalent to: REST GET /v2/schemas?action=types (partial — REST
+  // returns type names only; this RPC also returns type IDs)
+  rpc GetTypes(GetTypesRequest) returns (GetTypesResponse);
+}
+
+message GetTypesRequest {
+  // Empty — returns all user-registered types.
+  // Internal Infinispan types are excluded.
+}
+
+message GetTypesResponse {
+  // Map of fully-qualified protobuf type name → numeric type ID.
+  //
+  // Example:
+  //   {
+  //     "sample_bank_account.User": 42,
+  //     "sample_bank_account.Transaction": 43,
+  //     "sample_bank_account.Address": 44
+  //   }
+  //
+  // Includes both message types and enum types registered via user
+  // protobuf schemas.
+  map<string, int32> types = 1;
+}
