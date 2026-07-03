@@ -1,0 +1,248 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <linearGradient id="hdrGrad2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <filter id="cellGlow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="620" rx="12" fill="#0f0f1a"/>
+
+  <!-- Header -->
+  <rect width="960" height="56" rx="12" fill="url(#hdrGrad2)"/>
+  <rect y="44" width="960" height="12" fill="url(#hdrGrad2)"/>
+  <text x="20" y="35" fill="#e0e0e0" font-size="15" font-weight="600">Hot Keys Explorer</text>
+
+  <!-- View level tabs -->
+  <rect x="200" y="14" width="65" height="28" rx="6" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="232" y="33" fill="#888" font-size="11" text-anchor="middle">Nodes</text>
+  <rect x="272" y="14" width="70" height="28" rx="6" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="307" y="33" fill="#888" font-size="11" text-anchor="middle">Caches</text>
+  <rect x="349" y="14" width="82" height="28" rx="6" fill="#ff6b35" opacity="0.9"/>
+  <text x="390" y="33" fill="white" font-size="11" text-anchor="middle" font-weight="500">Segments</text>
+  <rect x="438" y="14" width="55" height="28" rx="6" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="465" y="33" fill="#888" font-size="11" text-anchor="middle">Keys</text>
+
+  <!-- Cache selector -->
+  <rect x="780" y="14" width="160" height="28" rx="6" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="800" y="33" fill="#aaa" font-size="11">Cache: my-cache</text>
+  <text x="920" y="33" fill="#555" font-size="11">&#x25BE;</text>
+
+  <!-- Left panel: Segment Heat Map -->
+  <rect x="20" y="70" width="540" height="340" rx="8" fill="#141428" stroke="#222" stroke-width="1"/>
+  <text x="40" y="98" fill="#ccc" font-size="14" font-weight="600">Segment Heat Map</text>
+
+  <!-- Grid labels row 1 -->
+  <text x="85" y="130" fill="#666" font-size="11" text-anchor="middle">0</text>
+  <text x="145" y="130" fill="#666" font-size="11" text-anchor="middle">1</text>
+  <text x="205" y="130" fill="#666" font-size="11" text-anchor="middle">2</text>
+  <text x="265" y="130" fill="#666" font-size="11" text-anchor="middle">3</text>
+  <text x="325" y="130" fill="#666" font-size="11" text-anchor="middle">4</text>
+  <text x="385" y="130" fill="#666" font-size="11" text-anchor="middle">5</text>
+  <text x="445" y="130" fill="#666" font-size="11" text-anchor="middle">6</text>
+  <text x="505" y="130" fill="#666" font-size="11" text-anchor="middle">7</text>
+
+  <!-- Row 1 cells -->
+  <!-- seg 0 - cool -->
+  <rect x="55" y="140" width="55" height="55" rx="6" fill="#339af0" opacity="0.35"/>
+  <text x="82" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.8">312</text>
+  <!-- seg 1 - cold -->
+  <rect x="115" y="140" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.2"/>
+  <text x="142" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.5">87</text>
+  <!-- seg 2 - warm -->
+  <rect x="175" y="140" width="55" height="55" rx="6" fill="#fcc419" opacity="0.4"/>
+  <text x="202" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.8">241</text>
+  <!-- seg 3 - FIRE - selected -->
+  <rect x="235" y="140" width="55" height="55" rx="6" fill="#ff4500" opacity="0.95" filter="url(#cellGlow)"/>
+  <rect x="235" y="140" width="55" height="55" rx="6" fill="none" stroke="#fff" stroke-width="2" opacity="0.8"/>
+  <text x="262" y="170" fill="white" font-size="12" text-anchor="middle" font-weight="700">1847</text>
+  <!-- seg 4 - cold -->
+  <rect x="295" y="140" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.15"/>
+  <text x="322" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.4">45</text>
+  <!-- seg 5 - cool -->
+  <rect x="355" y="140" width="55" height="55" rx="6" fill="#339af0" opacity="0.25"/>
+  <text x="382" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.6">188</text>
+  <!-- seg 6 - cold -->
+  <rect x="415" y="140" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.18"/>
+  <text x="442" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.45">62</text>
+  <!-- seg 7 - hot -->
+  <rect x="475" y="140" width="55" height="55" rx="6" fill="#f76707" opacity="0.75"/>
+  <text x="502" y="172" fill="white" font-size="11" text-anchor="middle" opacity="0.9">923</text>
+
+  <!-- Grid labels row 2 -->
+  <text x="85" y="220" fill="#666" font-size="11" text-anchor="middle">8</text>
+  <text x="145" y="220" fill="#666" font-size="11" text-anchor="middle">9</text>
+  <text x="205" y="220" fill="#666" font-size="11" text-anchor="middle">10</text>
+  <text x="265" y="220" fill="#666" font-size="11" text-anchor="middle">11</text>
+  <text x="325" y="220" fill="#666" font-size="11" text-anchor="middle">12</text>
+  <text x="385" y="220" fill="#666" font-size="11" text-anchor="middle">13</text>
+  <text x="445" y="220" fill="#666" font-size="11" text-anchor="middle">14</text>
+  <text x="505" y="220" fill="#666" font-size="11" text-anchor="middle">15</text>
+
+  <!-- Row 2 cells -->
+  <!-- seg 8 -->
+  <rect x="55" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.12"/>
+  <text x="82" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.4">31</text>
+  <!-- seg 9 -->
+  <rect x="115" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.22"/>
+  <text x="142" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.5">98</text>
+  <!-- seg 10 -->
+  <rect x="175" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.1"/>
+  <text x="202" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.35">22</text>
+  <!-- seg 11 -->
+  <rect x="235" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.14"/>
+  <text x="262" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.4">43</text>
+  <!-- seg 12 - hot -->
+  <rect x="295" y="230" width="55" height="55" rx="6" fill="#f76707" opacity="0.6"/>
+  <text x="322" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.85">712</text>
+  <!-- seg 13 -->
+  <rect x="355" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.1"/>
+  <text x="382" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.35">18</text>
+  <!-- seg 14 -->
+  <rect x="415" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.17"/>
+  <text x="442" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.45">54</text>
+  <!-- seg 15 -->
+  <rect x="475" y="230" width="55" height="55" rx="6" fill="#1c7ed6" opacity="0.08"/>
+  <text x="502" y="262" fill="white" font-size="11" text-anchor="middle" opacity="0.3">12</text>
+
+  <!-- Legend -->
+  <text x="55" y="320" fill="#666" font-size="10">Legend:</text>
+  <rect x="105" y="308" width="30" height="14" rx="3" fill="#1c7ed6" opacity="0.12"/>
+  <text x="140" y="319" fill="#666" font-size="9">Cold</text>
+  <rect x="165" y="308" width="30" height="14" rx="3" fill="#339af0" opacity="0.35"/>
+  <text x="200" y="319" fill="#666" font-size="9">Cool</text>
+  <rect x="230" y="308" width="30" height="14" rx="3" fill="#fcc419" opacity="0.5"/>
+  <text x="265" y="319" fill="#666" font-size="9">Warm</text>
+  <rect x="295" y="308" width="30" height="14" rx="3" fill="#f76707" opacity="0.7"/>
+  <text x="330" y="319" fill="#666" font-size="9">Hot</text>
+  <rect x="355" y="308" width="30" height="14" rx="3" fill="#ff4500" opacity="0.95"/>
+  <text x="390" y="319" fill="#666" font-size="9">Fire</text>
+
+  <!-- Timeline chart -->
+  <rect x="20" y="420" width="540" height="185" rx="8" fill="#141428" stroke="#222" stroke-width="1"/>
+  <text x="40" y="448" fill="#ccc" font-size="13" font-weight="600">Timeline</text>
+  <text x="40" y="465" fill="#555" font-size="10">segment-3 ops/s over last 60s</text>
+
+  <!-- Y axis labels -->
+  <text x="55" y="487" fill="#555" font-size="9" text-anchor="end">2k</text>
+  <text x="55" y="517" fill="#555" font-size="9" text-anchor="end">1.5k</text>
+  <text x="55" y="547" fill="#555" font-size="9" text-anchor="end">1k</text>
+  <text x="55" y="577" fill="#555" font-size="9" text-anchor="end">500</text>
+
+  <!-- Grid lines -->
+  <line x1="65" y1="483" x2="540" y2="483" stroke="#222" stroke-width="0.5"/>
+  <line x1="65" y1="513" x2="540" y2="513" stroke="#222" stroke-width="0.5"/>
+  <line x1="65" y1="543" x2="540" y2="543" stroke="#222" stroke-width="0.5"/>
+  <line x1="65" y1="573" x2="540" y2="573" stroke="#222" stroke-width="0.5"/>
+
+  <!-- Sparkline area fill -->
+  <path d="M65,570 L95,568 L125,565 L155,560 L185,555 L215,540 L245,510 L275,488 L305,483 L335,490 L365,505 L395,520 L425,535 L455,545 L485,550 L515,553 L540,555 L540,590 L65,590 Z"
+        fill="#ff6b35" opacity="0.1"/>
+
+  <!-- Sparkline -->
+  <path d="M65,570 L95,568 L125,565 L155,560 L185,555 L215,540 L245,510 L275,488 L305,483 L335,490 L365,505 L395,520 L425,535 L455,545 L485,550 L515,553 L540,555"
+        fill="none" stroke="#ff6b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Peak dot -->
+  <circle cx="305" cy="483" r="4" fill="#ff4500" filter="url(#cellGlow)"/>
+  <text x="305" y="475" fill="#ff6b35" font-size="9" text-anchor="middle">1,847</text>
+
+  <!-- X axis labels -->
+  <text x="65" y="600" fill="#444" font-size="9">-60s</text>
+  <text x="185" y="600" fill="#444" font-size="9">-45s</text>
+  <text x="305" y="600" fill="#444" font-size="9">-30s</text>
+  <text x="425" y="600" fill="#444" font-size="9">-15s</text>
+  <text x="530" y="600" fill="#444" font-size="9">now</text>
+
+  <!-- Right panel: Detail -->
+  <rect x="580" y="70" width="360" height="535" rx="8" fill="#141428" stroke="#222" stroke-width="1"/>
+
+  <!-- Detail header -->
+  <text x="600" y="100" fill="#ccc" font-size="14" font-weight="600">Detail: segment-3</text>
+  <circle cx="910" cy="95" r="8" fill="#ff4500" opacity="0.3"/>
+  <circle cx="910" cy="95" r="4" fill="#ff4500" opacity="0.8"/>
+
+  <!-- Stats section -->
+  <line x1="600" y1="115" x2="920" y2="115" stroke="#222" stroke-width="0.5"/>
+
+  <text x="600" y="140" fill="#888" font-size="12">Ops/s</text>
+  <text x="780" y="140" fill="#fff" font-size="14" font-weight="600" text-anchor="end">1,847</text>
+
+  <line x1="600" y1="155" x2="920" y2="155" stroke="#1a1a2e" stroke-width="0.5"/>
+
+  <!-- GET bar -->
+  <text x="600" y="178" fill="#888" font-size="12">GET</text>
+  <rect x="660" y="166" width="200" height="16" rx="3" fill="#1a1a2e"/>
+  <rect x="660" y="166" width="164" height="16" rx="3" fill="#339af0" opacity="0.6"/>
+  <text x="870" y="178" fill="#aaa" font-size="11" text-anchor="end">1,523 (82%)</text>
+
+  <!-- PUT bar -->
+  <text x="600" y="205" fill="#888" font-size="12">PUT</text>
+  <rect x="660" y="193" width="200" height="16" rx="3" fill="#1a1a2e"/>
+  <rect x="660" y="193" width="32" height="16" rx="3" fill="#fcc419" opacity="0.6"/>
+  <text x="870" y="205" fill="#aaa" font-size="11" text-anchor="end">298 (16%)</text>
+
+  <!-- REMOVE bar -->
+  <text x="600" y="232" fill="#888" font-size="12">REMOVE</text>
+  <rect x="660" y="220" width="200" height="16" rx="3" fill="#1a1a2e"/>
+  <rect x="660" y="220" width="4" height="16" rx="2" fill="#e8590c" opacity="0.6"/>
+  <text x="870" y="232" fill="#aaa" font-size="11" text-anchor="end">26 (2%)</text>
+
+  <line x1="600" y1="250" x2="920" y2="250" stroke="#222" stroke-width="0.5"/>
+
+  <!-- Ownership -->
+  <text x="600" y="275" fill="#888" font-size="12">Owner</text>
+  <text x="920" y="275" fill="#ddd" font-size="12" text-anchor="end">node-1</text>
+
+  <text x="600" y="300" fill="#888" font-size="12">Backup</text>
+  <text x="920" y="300" fill="#ddd" font-size="12" text-anchor="end">node-3</text>
+
+  <line x1="600" y1="318" x2="920" y2="318" stroke="#222" stroke-width="0.5"/>
+
+  <!-- Top Keys -->
+  <text x="600" y="345" fill="#ccc" font-size="13" font-weight="600">Top Keys</text>
+
+  <!-- Key 1 -->
+  <rect x="600" y="358" width="320" height="36" rx="4" fill="#ff4500" opacity="0.1"/>
+  <text x="612" y="372" fill="#ff6b35" font-size="10" font-weight="500">1</text>
+  <text x="630" y="372" fill="#ddd" font-size="12">user:1001</text>
+  <text x="630" y="388" fill="#666" font-size="10">GET: 412 | PUT: 75</text>
+  <text x="908" y="378" fill="#ff6b35" font-size="12" text-anchor="end" font-weight="600">487/s</text>
+
+  <!-- Key 2 -->
+  <rect x="600" y="400" width="320" height="36" rx="4" fill="#f76707" opacity="0.08"/>
+  <text x="612" y="414" fill="#f76707" font-size="10" font-weight="500">2</text>
+  <text x="630" y="414" fill="#ddd" font-size="12">session:abc</text>
+  <text x="630" y="430" fill="#666" font-size="10">GET: 301 | PUT: 11</text>
+  <text x="908" y="420" fill="#f76707" font-size="12" text-anchor="end" font-weight="600">312/s</text>
+
+  <!-- Key 3 -->
+  <rect x="600" y="442" width="320" height="36" rx="4" fill="#fcc419" opacity="0.06"/>
+  <text x="612" y="456" fill="#fcc419" font-size="10" font-weight="500">3</text>
+  <text x="630" y="456" fill="#ddd" font-size="12">cart:7f2a</text>
+  <text x="630" y="472" fill="#666" font-size="10">GET: 16 | PUT: 182</text>
+  <text x="908" y="462" fill="#fcc419" font-size="12" text-anchor="end" font-weight="600">198/s</text>
+
+  <!-- Key 4 -->
+  <rect x="600" y="484" width="320" height="36" rx="4" fill="#339af0" opacity="0.06"/>
+  <text x="612" y="498" fill="#339af0" font-size="10" font-weight="500">4</text>
+  <text x="630" y="498" fill="#ddd" font-size="12">user:3309</text>
+  <text x="630" y="514" fill="#666" font-size="10">GET: 120 | PUT: 23</text>
+  <text x="908" y="504" fill="#339af0" font-size="12" text-anchor="end" font-weight="600">143/s</text>
+
+  <!-- Key 5 -->
+  <rect x="600" y="526" width="320" height="36" rx="4" fill="#1c7ed6" opacity="0.06"/>
+  <text x="612" y="540" fill="#1c7ed6" font-size="10" font-weight="500">5</text>
+  <text x="630" y="540" fill="#ddd" font-size="12">prod:config</text>
+  <text x="630" y="556" fill="#666" font-size="10">GET: 95 | PUT: 3</text>
+  <text x="908" y="546" fill="#1c7ed6" font-size="12" text-anchor="end" font-weight="600">98/s</text>
+
+  <!-- Warning -->
+  <rect x="600" y="572" width="320" height="26" rx="4" fill="#ff4500" opacity="0.08"/>
+  <text x="615" y="590" fill="#ff6b35" font-size="11">&#x26A0; user:1001 is 26% of segment traffic</text>
+</svg>

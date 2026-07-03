@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="680" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <linearGradient id="hdrGrad3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <radialGradient id="nodeFireGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff4500" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#ff4500" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ff4500" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nodeWarmGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f76707" stop-opacity="0.25"/>
+      <stop offset="60%" stop-color="#f76707" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#f76707" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nodeColdGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#339af0" stop-opacity="0.2"/>
+      <stop offset="60%" stop-color="#339af0" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#339af0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="topShadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="pulseGlow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="connGrad1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff6b35" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#f76707" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="connGrad2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f76707" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#339af0" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="680" rx="12" fill="#0f0f1a"/>
+
+  <!-- Header -->
+  <rect width="960" height="56" rx="12" fill="url(#hdrGrad3)"/>
+  <rect y="44" width="960" height="12" fill="url(#hdrGrad3)"/>
+  <text x="20" y="35" fill="#e0e0e0" font-size="15" font-weight="600">Hot Keys Explorer</text>
+  <text x="200" y="35" fill="#888" font-size="13">Cluster Topology</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- NODE TOPOLOGY SECTION                               -->
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- Connection lines between nodes -->
+  <line x1="265" y1="175" x2="480" y2="175" stroke="url(#connGrad1)" stroke-width="2" stroke-dasharray="6,4"/>
+  <line x1="480" y1="175" x2="695" y2="175" stroke="url(#connGrad2)" stroke-width="2" stroke-dasharray="6,4"/>
+
+  <!-- Flow arrows -->
+  <polygon points="370,172 376,175 370,178" fill="#f76707" opacity="0.5"/>
+  <polygon points="585,172 591,175 585,178" fill="#339af0" opacity="0.3"/>
+
+  <!-- ── Node 1 (FIRE) ────────────── -->
+  <!-- Glow -->
+  <circle cx="160" cy="175" r="85" fill="url(#nodeFireGlow)"/>
+  <!-- Card -->
+  <rect x="85" y="100" width="150" height="150" rx="16" fill="#1a1028" stroke="#ff4500" stroke-width="2" opacity="0.95" filter="url(#topShadow)"/>
+  <!-- Pulse ring -->
+  <rect x="85" y="100" width="150" height="150" rx="16" fill="none" stroke="#ff4500" stroke-width="1" opacity="0.3">
+    <animate attributeName="opacity" values="0.3;0.05;0.3" dur="2s" repeatCount="indefinite"/>
+  </rect>
+  <!-- Content -->
+  <text x="160" y="135" fill="#ff6b35" font-size="16" font-weight="700" text-anchor="middle">node-1</text>
+  <!-- Load bar background -->
+  <rect x="108" y="148" width="104" height="8" rx="4" fill="#0f0f1a"/>
+  <!-- Load bar fill -->
+  <rect x="108" y="148" width="71" height="8" rx="4" fill="#ff4500" opacity="0.9"/>
+  <text x="160" y="175" fill="#eee" font-size="22" font-weight="700" text-anchor="middle">3,271</text>
+  <text x="160" y="190" fill="#999" font-size="11" text-anchor="middle">ops/s</text>
+  <text x="160" y="215" fill="#ff6b35" font-size="13" font-weight="600" text-anchor="middle">68% load</text>
+  <!-- Heat indicator -->
+  <circle cx="215" cy="115" r="6" fill="#ff4500" opacity="0.9">
+    <animate attributeName="r" values="5;7;5" dur="1.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.9;0.5;0.9" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ── Node 2 (WARM) ────────────── -->
+  <circle cx="480" cy="175" r="75" fill="url(#nodeWarmGlow)"/>
+  <rect x="405" y="100" width="150" height="150" rx="16" fill="#1a1a28" stroke="#f76707" stroke-width="1.5" opacity="0.9" filter="url(#topShadow)"/>
+  <text x="480" y="135" fill="#f76707" font-size="16" font-weight="700" text-anchor="middle">node-2</text>
+  <rect x="428" y="148" width="104" height="8" rx="4" fill="#0f0f1a"/>
+  <rect x="428" y="148" width="20" height="8" rx="4" fill="#f76707" opacity="0.7"/>
+  <text x="480" y="175" fill="#eee" font-size="22" font-weight="700" text-anchor="middle">892</text>
+  <text x="480" y="190" fill="#999" font-size="11" text-anchor="middle">ops/s</text>
+  <text x="480" y="215" fill="#f76707" font-size="13" font-weight="600" text-anchor="middle">19% load</text>
+
+  <!-- ── Node 3 (COLD) ────────────── -->
+  <circle cx="800" cy="175" r="65" fill="url(#nodeColdGlow)"/>
+  <rect x="725" y="100" width="150" height="150" rx="16" fill="#141428" stroke="#339af0" stroke-width="1" opacity="0.85" filter="url(#topShadow)"/>
+  <text x="800" y="135" fill="#339af0" font-size="16" font-weight="700" text-anchor="middle">node-3</text>
+  <rect x="748" y="148" width="104" height="8" rx="4" fill="#0f0f1a"/>
+  <rect x="748" y="148" width="5" height="8" rx="2.5" fill="#339af0" opacity="0.5"/>
+  <text x="800" y="175" fill="#eee" font-size="22" font-weight="700" text-anchor="middle">234</text>
+  <text x="800" y="190" fill="#999" font-size="11" text-anchor="middle">ops/s</text>
+  <text x="800" y="215" fill="#339af0" font-size="13" font-weight="600" text-anchor="middle">5% load</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- CACHE DISTRIBUTION SECTION                          -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <rect x="40" y="280" width="880" height="210" rx="10" fill="#141428" stroke="#222" stroke-width="1"/>
+  <text x="65" y="310" fill="#ccc" font-size="14" font-weight="600">Cache Distribution</text>
+  <text x="65" y="328" fill="#555" font-size="11">Traffic share across all caches</text>
+
+  <!-- my-cache (78%) -->
+  <text x="65" y="365" fill="#ddd" font-size="13" font-weight="500">my-cache</text>
+  <!-- Track -->
+  <rect x="200" y="352" width="580" height="22" rx="4" fill="#0f0f1a"/>
+  <!-- Fill - fire gradient -->
+  <rect x="200" y="352" width="452" height="22" rx="4" fill="#ff4500" opacity="0.7"/>
+  <rect x="200" y="352" width="350" height="22" rx="4" fill="#ff4500" opacity="0.85"/>
+  <rect x="200" y="352" width="200" height="22" rx="4" fill="#ff6b35" opacity="0.9"/>
+  <!-- Segment heat indicators within the bar -->
+  <rect x="290" y="355" width="3" height="16" rx="1" fill="white" opacity="0.5"/>
+  <rect x="380" y="355" width="3" height="16" rx="1" fill="white" opacity="0.3"/>
+  <rect x="500" y="355" width="3" height="16" rx="1" fill="white" opacity="0.2"/>
+  <text x="800" y="368" fill="#ff6b35" font-size="13" font-weight="600" text-anchor="end">78%</text>
+  <text x="830" y="368" fill="#777" font-size="11">3,430/s</text>
+
+  <!-- sessions (15%) -->
+  <text x="65" y="405" fill="#ddd" font-size="13" font-weight="500">sessions</text>
+  <rect x="200" y="392" width="580" height="22" rx="4" fill="#0f0f1a"/>
+  <rect x="200" y="392" width="87" height="22" rx="4" fill="#f76707" opacity="0.5"/>
+  <text x="800" y="408" fill="#f76707" font-size="13" font-weight="600" text-anchor="end">15%</text>
+  <text x="830" y="408" fill="#777" font-size="11">660/s</text>
+
+  <!-- auth-tokens (5%) -->
+  <text x="65" y="445" fill="#ddd" font-size="13" font-weight="500">auth-tokens</text>
+  <rect x="200" y="432" width="580" height="22" rx="4" fill="#0f0f1a"/>
+  <rect x="200" y="432" width="29" height="22" rx="4" fill="#339af0" opacity="0.4"/>
+  <text x="800" y="448" fill="#339af0" font-size="13" font-weight="600" text-anchor="end">5%</text>
+  <text x="830" y="448" fill="#777" font-size="11">220/s</text>
+
+  <!-- config (2%) -->
+  <text x="65" y="474" fill="#ddd" font-size="13" font-weight="500">config</text>
+  <rect x="200" y="462" width="580" height="22" rx="4" fill="#0f0f1a"/>
+  <rect x="200" y="462" width="12" height="22" rx="4" fill="#1c7ed6" opacity="0.3"/>
+  <text x="800" y="478" fill="#1c7ed6" font-size="13" font-weight="600" text-anchor="end">2%</text>
+  <text x="830" y="478" fill="#777" font-size="11">88/s</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ALERTS SECTION                                      -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <rect x="40" y="510" width="880" height="150" rx="10" fill="#141428" stroke="#222" stroke-width="1"/>
+
+  <!-- Alert header -->
+  <text x="65" y="540" fill="#ccc" font-size="14" font-weight="600">Alerts</text>
+  <circle cx="915" cy="535" r="5" fill="#ff4500" opacity="0.8">
+    <animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <text x="900" y="540" fill="#ff6b35" font-size="11" text-anchor="end">3</text>
+
+  <!-- Alert 1 - Critical -->
+  <rect x="65" y="555" width="835" height="28" rx="6" fill="#ff4500" opacity="0.08"/>
+  <circle cx="80" cy="569" r="4" fill="#ff4500" opacity="0.8"/>
+  <text x="92" y="573" fill="#ff6b35" font-size="12" font-weight="500">node-1 handles 74% of cluster traffic</text>
+  <text x="360" y="573" fill="#777" font-size="11">(expected ~33% with 3 nodes)</text>
+
+  <!-- Alert 2 - Warning -->
+  <rect x="65" y="588" width="835" height="28" rx="6" fill="#f76707" opacity="0.06"/>
+  <circle cx="80" cy="602" r="4" fill="#f76707" opacity="0.7"/>
+  <text x="92" y="606" fill="#f76707" font-size="12" font-weight="500">my-cache:segment-3 is a single-key hotspot</text>
+  <text x="387" y="606" fill="#777" font-size="11">(user:1001 = 487/s, 26% of segment)</text>
+
+  <!-- Alert 3 - Suggestion -->
+  <rect x="65" y="621" width="835" height="28" rx="6" fill="#339af0" opacity="0.06"/>
+  <circle cx="80" cy="635" r="4" fill="#339af0" opacity="0.6"/>
+  <text x="92" y="639" fill="#4dabf7" font-size="12" font-weight="500">Consider:</text>
+  <text x="164" y="639" fill="#888" font-size="11">key affinity rebalance, near-cache, or read-behind for top 5 keys</text>
+</svg>

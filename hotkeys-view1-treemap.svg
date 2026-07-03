@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="620" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#ff4500"/>
+      <stop offset="100%" stop-color="#ff6b35"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#e8590c"/>
+      <stop offset="100%" stop-color="#f76707"/>
+    </linearGradient>
+    <linearGradient id="warm" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#f59f00"/>
+      <stop offset="100%" stop-color="#fcc419"/>
+    </linearGradient>
+    <linearGradient id="cool" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#1971c2"/>
+      <stop offset="100%" stop-color="#339af0"/>
+    </linearGradient>
+    <linearGradient id="cold" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#1864ab"/>
+      <stop offset="100%" stop-color="#1c7ed6"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" rx="12" fill="#0f0f1a"/>
+
+  <!-- Header -->
+  <rect width="900" height="56" rx="12" fill="url(#headerGrad)"/>
+  <rect y="44" width="900" height="12" fill="url(#headerGrad)"/>
+
+  <!-- Title -->
+  <text x="20" y="35" fill="#e0e0e0" font-size="15" font-weight="600">Hot Keys Explorer</text>
+
+  <!-- Breadcrumb -->
+  <text x="200" y="35" fill="#666" font-size="13">Cluster</text>
+  <text x="260" y="35" fill="#555" font-size="13">›</text>
+  <text x="275" y="35" fill="#666" font-size="13">node-1</text>
+  <text x="335" y="35" fill="#555" font-size="13">›</text>
+  <text x="350" y="35" fill="#aaa" font-size="13" font-weight="500">my-cache</text>
+
+  <!-- View toggles -->
+  <rect x="720" y="14" width="70" height="28" rx="6" fill="#ff6b35" opacity="0.9"/>
+  <text x="755" y="33" fill="white" font-size="11" text-anchor="middle" font-weight="500">Treemap</text>
+  <rect x="800" y="14" width="80" height="28" rx="6" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="840" y="33" fill="#888" font-size="11" text-anchor="middle">Heatmap</text>
+
+  <!-- Treemap area -->
+  <!-- Segment 3 - FIRE (largest) -->
+  <rect x="20" y="70" width="340" height="280" rx="4" fill="url(#fire)" opacity="0.85"/>
+  <text x="40" y="105" fill="white" font-size="18" font-weight="700" opacity="0.95">segment-3</text>
+  <text x="40" y="130" fill="white" font-size="13" opacity="0.8">1,847 ops/s</text>
+  <rect x="40" y="142" width="160" height="4" rx="2" fill="white" opacity="0.2"/>
+  <rect x="40" y="142" width="152" height="4" rx="2" fill="white" opacity="0.6"/>
+  <text x="40" y="165" fill="white" font-size="11" opacity="0.6">42% of cache traffic</text>
+  <!-- heat indicator dots -->
+  <circle cx="40" cy="330" r="4" fill="white" opacity="0.9"/>
+  <circle cx="52" cy="330" r="4" fill="white" opacity="0.7"/>
+  <circle cx="64" cy="330" r="4" fill="white" opacity="0.5"/>
+  <circle cx="76" cy="330" r="4" fill="white" opacity="0.3"/>
+  <circle cx="88" cy="330" r="4" fill="white" opacity="0.15"/>
+  <text x="100" y="334" fill="white" font-size="10" opacity="0.5">95th pctl</text>
+
+  <!-- Segment 7 - HOT -->
+  <rect x="365" y="70" width="180" height="165" rx="4" fill="url(#hot)" opacity="0.85"/>
+  <text x="380" y="100" fill="white" font-size="15" font-weight="600" opacity="0.95">segment-7</text>
+  <text x="380" y="120" fill="white" font-size="12" opacity="0.75">923 ops/s</text>
+  <rect x="380" y="130" width="100" height="3" rx="1.5" fill="white" opacity="0.2"/>
+  <rect x="380" y="130" width="72" height="3" rx="1.5" fill="white" opacity="0.5"/>
+
+  <!-- Segment 12 - HOT -->
+  <rect x="550" y="70" width="330" height="165" rx="4" fill="url(#hot)" opacity="0.75"/>
+  <text x="565" y="100" fill="white" font-size="15" font-weight="600" opacity="0.95">segment-12</text>
+  <text x="565" y="120" fill="white" font-size="12" opacity="0.75">712 ops/s</text>
+  <rect x="565" y="130" width="100" height="3" rx="1.5" fill="white" opacity="0.2"/>
+  <rect x="565" y="130" width="58" height="3" rx="1.5" fill="white" opacity="0.5"/>
+
+  <!-- Segment 2 - WARM -->
+  <rect x="365" y="240" width="180" height="110" rx="4" fill="url(#warm)" opacity="0.7"/>
+  <text x="380" y="268" fill="#1a1a2e" font-size="14" font-weight="600">segment-2</text>
+  <text x="380" y="286" fill="#1a1a2e" font-size="11" opacity="0.7">241 ops/s</text>
+
+  <!-- Segment 0 - COOL -->
+  <rect x="20" y="355" width="250" height="90" rx="4" fill="url(#cool)" opacity="0.7"/>
+  <text x="35" y="383" fill="white" font-size="14" font-weight="600" opacity="0.9">segment-0</text>
+  <text x="35" y="401" fill="white" font-size="11" opacity="0.65">312 ops/s</text>
+
+  <!-- Segment 5 - COOL -->
+  <rect x="275" y="355" width="155" height="90" rx="4" fill="url(#cool)" opacity="0.6"/>
+  <text x="290" y="383" fill="white" font-size="13" font-weight="600" opacity="0.9">segment-5</text>
+  <text x="290" y="401" fill="white" font-size="11" opacity="0.65">188 ops/s</text>
+
+  <!-- Segment 9 - COLD -->
+  <rect x="550" y="240" width="160" height="110" rx="4" fill="url(#cold)" opacity="0.6"/>
+  <text x="565" y="268" fill="white" font-size="13" font-weight="600" opacity="0.85">segment-9</text>
+  <text x="565" y="286" fill="white" font-size="11" opacity="0.6">98 ops/s</text>
+
+  <!-- Segment 14 - COLD -->
+  <rect x="715" y="240" width="165" height="110" rx="4" fill="url(#cold)" opacity="0.5"/>
+  <text x="730" y="268" fill="white" font-size="13" font-weight="600" opacity="0.85">segment-14</text>
+  <text x="730" y="286" fill="white" font-size="11" opacity="0.6">54 ops/s</text>
+
+  <!-- Segment 1 - COLD (small) -->
+  <rect x="435" y="355" width="135" height="90" rx="4" fill="url(#cold)" opacity="0.45"/>
+  <text x="450" y="383" fill="white" font-size="12" font-weight="600" opacity="0.8">segment-1</text>
+  <text x="450" y="399" fill="white" font-size="10" opacity="0.5">87 ops/s</text>
+
+  <!-- Segment 11 - COLD (small) -->
+  <rect x="575" y="355" width="135" height="90" rx="4" fill="url(#cold)" opacity="0.35"/>
+  <text x="590" y="383" fill="white" font-size="12" font-weight="600" opacity="0.8">segment-11</text>
+  <text x="590" y="399" fill="white" font-size="10" opacity="0.5">43 ops/s</text>
+
+  <!-- Segment 15 - COLD (smallest) -->
+  <rect x="715" y="355" width="165" height="90" rx="4" fill="url(#cold)" opacity="0.3"/>
+  <text x="730" y="383" fill="white" font-size="12" font-weight="600" opacity="0.8">segment-15</text>
+  <text x="730" y="399" fill="white" font-size="10" opacity="0.5">12 ops/s</text>
+
+  <!-- Bottom status bar -->
+  <rect x="0" y="460" width="900" height="160" rx="0" fill="#111125" opacity="0.8"/>
+  <rect x="0" y="608" width="900" height="12" rx="0" fill="#111125"/>
+  <rect x="0" y="608" width="900" height="12" rx="12" fill="#111125"/>
+
+  <!-- Fire icon and hottest label -->
+  <circle cx="40" cy="488" r="10" fill="#ff4500" opacity="0.3"/>
+  <text x="33" y="493" fill="#ff6b35" font-size="14">&#x1F525;</text>
+  <text x="58" y="493" fill="#ccc" font-size="13" font-weight="500">Hottest: segment-3</text>
+  <text x="210" y="493" fill="#888" font-size="12">(42% of traffic)</text>
+
+  <!-- Imbalance score -->
+  <text x="58" y="520" fill="#999" font-size="12">Imbalance score:</text>
+  <text x="175" y="520" fill="#f76707" font-size="12" font-weight="600">0.73</text>
+  <text x="200" y="520" fill="#777" font-size="11">(skewed)</text>
+
+  <!-- Right side stats -->
+  <text x="500" y="493" fill="#999" font-size="12">Total:</text>
+  <text x="542" y="493" fill="#ddd" font-size="12" font-weight="500">4,505 ops/s</text>
+  <text x="500" y="520" fill="#999" font-size="12">Keys tracked:</text>
+  <text x="590" y="520" fill="#ddd" font-size="12" font-weight="500">1,024</text>
+
+  <!-- Legend -->
+  <text x="40" y="560" fill="#777" font-size="11">Heat scale:</text>
+  <rect x="120" y="548" width="40" height="16" rx="3" fill="url(#cold)" opacity="0.4"/>
+  <text x="125" y="560" fill="white" font-size="9" opacity="0.7">Cold</text>
+  <rect x="165" y="548" width="40" height="16" rx="3" fill="url(#cool)" opacity="0.6"/>
+  <text x="170" y="560" fill="white" font-size="9" opacity="0.7">Cool</text>
+  <rect x="210" y="548" width="40" height="16" rx="3" fill="url(#warm)" opacity="0.7"/>
+  <text x="213" y="560" fill="#1a1a2e" font-size="9">Warm</text>
+  <rect x="255" y="548" width="40" height="16" rx="3" fill="url(#hot)" opacity="0.8"/>
+  <text x="264" y="560" fill="white" font-size="9" opacity="0.8">Hot</text>
+  <rect x="300" y="548" width="40" height="16" rx="3" fill="url(#fire)" opacity="0.9"/>
+  <text x="308" y="560" fill="white" font-size="9" opacity="0.9">Fire</text>
+
+  <!-- Tooltip hint -->
+  <text x="500" y="560" fill="#555" font-size="10" font-style="italic">Click a segment to drill into its keys</text>
+</svg>
